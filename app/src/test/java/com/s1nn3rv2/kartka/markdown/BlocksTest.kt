@@ -103,4 +103,13 @@ class BlocksTest {
         assertEquals(MdMath("\\frac{a}{b}", 0), blocks[1])
         assertEquals(MdMath("x_1", 0), blocks[2])
     }
+
+    // A remembered fold follows its block's text, not its position: adding lines above must not fold something else.
+    @Test fun foldsFollowTheirBlock() {
+        val before = BlockBuilder.build("# A\n- one\n\t- child\n- two\n\t- child\n")
+        val keys = setOfNotNull(foldKey(before[3]))
+        val after = BlockBuilder.build("# A\n- new\n- one\n\t- child\n- two\n\t- child\n")
+        val folded = foldsFromKeys(after, keys)
+        assertEquals(listOf("two"), folded.map { (after[it] as MdListItem).text.text })
+    }
 }

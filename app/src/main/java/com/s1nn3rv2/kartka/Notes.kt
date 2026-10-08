@@ -180,6 +180,14 @@ class Notes(context: Context) {
     fun imageFile(notePath: String, url: String): File? =
         repository?.let { File(it.file(notePath).parentFile, Uri.decode(url)).normalize() }
 
+    private val foldPrefs = context.getSharedPreferences("folds", Context.MODE_PRIVATE)
+
+    // ponytail: one entry per note ever folded, never cleaned up; prune entries of missing notes if it ever grows large.
+    /** The folded blocks of a note (see foldKey), or null if its folds were never changed in the app. */
+    fun folds(path: String): Set<String>? = foldPrefs.getStringSet(path, null)
+
+    fun setFolds(path: String, keys: Set<String>) = foldPrefs.edit().putStringSet(path, keys).apply()
+
     /** Where `[[target]]` in the note at [from] leads, if that note exists. */
     fun resolveLink(target: String, from: String): String? =
         com.s1nn3rv2.kartka.index.resolveLink(state.value.notes, target, from.substringBeforeLast('/', ""))

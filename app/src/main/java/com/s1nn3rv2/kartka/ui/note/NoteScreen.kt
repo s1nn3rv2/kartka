@@ -108,6 +108,8 @@ import com.s1nn3rv2.kartka.markdown.MdFootnote
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
 import com.s1nn3rv2.kartka.markdown.foldEnd
+import com.s1nn3rv2.kartka.markdown.foldKey
+import com.s1nn3rv2.kartka.markdown.foldsFromKeys
 import com.s1nn3rv2.kartka.markdown.visibleBlocks
 import com.s1nn3rv2.kartka.storage.NoteMeta
 import com.s1nn3rv2.kartka.storage.PathRules
@@ -156,8 +158,15 @@ fun NoteScreen(
     val blocks by produceState(prepared?.blocks, text) {
         if (text != null && text !== prepared?.loaded?.text) value = withContext(Dispatchers.Default) { BlockBuilder.build(text) }
     }
-    // Null until the blocks arrive; then seeded from Logseq's collapsed:: true. Reset when the text changes shape.
-    var folded by remember(path) { mutableStateOf(prepared?.blocks?.let(::initialFolds)) }
+    // Folds are remembered per note by the folded blocks' text, so they survive edits elsewhere and reopening. Until
+    // they're changed in the app, a note opens with Logseq's collapsed:: true items folded. Null until blocks arrive.
+    var foldKeys by remember(path) { mutableStateOf(app.notes.folds(path)) }
+    val folded = remember(blocks, foldKeys) { blocks?.let { b -> foldKeys?.let { foldsFromKeys(b, it) } ?: initialFolds(b) } }
+    fun setFolded(b: List<MdBlock>, indices: Set<Int>) {
+        val keys = indices.mapNotNullTo(HashSet()) { foldKey(b[it]) }
+        foldKeys = keys
+        app.notes.setFolds(session.path, keys)
+    }
     val listState = rememberLazyListState()
     var showOutline by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
@@ -165,12 +174,6 @@ fun NoteScreen(
     var showBacklinks by remember { mutableStateOf(false) }
     // Set while the cursor is after an unfinished `[[`: where the name starts and what's typed so far.
     var linkQuery by remember { mutableStateOf<Pair<Int, String>?>(null) }
-    LaunchedEffect(blocks) {
-        val b = blocks ?: return@LaunchedEffect
-        if (folded == null || folded!!.any { it >= b.size }) {
-            folded = initialFolds(b)
-        }
-    }
 
     // The editor is built hidden shortly after the note opens: laying out a long note takes ~100 ms of main-thread
     // time, which would otherwise land on the Edit tap. Edit and Done then only switch which layer is on top.
@@ -233,7 +236,7 @@ fun NoteScreen(
     // Unfolds anything hiding block [index], then scrolls it to the top.
     fun reveal(b: List<MdBlock>, index: Int) {
         val open = folded.orEmpty().filterTo(HashSet()) { it >= index || foldEnd(b, it) <= index }
-        folded = open
+        setFolded(b, open)
         val position = visibleBlocks(b, open).indexOf(index)
         if (position >= 0) scope.launch { listState.animateScrollToItem(position) }
     }
@@ -428,7 +431,7 @@ fun NoteScreen(
                         MarkdownView(
                             blocks = b,
                             folded = f,
-                            onToggleFold = { i -> folded = if (i in f) f - i else f + i },
+                            onToggleFold = { i -> setFolded(b, if (i in f) f - i else f + i) },
                             onLink = { span ->
                                 when (span.style) {
                                     InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)

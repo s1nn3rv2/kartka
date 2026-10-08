@@ -295,6 +295,17 @@ fun foldEnd(blocks: List<MdBlock>, i: Int): Int {
 
 fun canFold(blocks: List<MdBlock>, i: Int) = foldEnd(blocks, i) > i + 1
 
+/** How a folded block is remembered between visits: its nesting and text, so edits elsewhere don't move the fold. */
+fun foldKey(b: MdBlock): String? = when (b) {
+    is MdHeading -> "h${b.level}|${b.text.text}"
+    is MdListItem -> "${b.indent}|${b.text.text}"
+    else -> null
+}
+
+/** Indices of the blocks matching remembered [keys] (see [foldKey]). */
+fun foldsFromKeys(blocks: List<MdBlock>, keys: Set<String>): Set<Int> =
+    if (keys.isEmpty()) emptySet() else blocks.indices.filterTo(HashSet()) { foldKey(blocks[it]) in keys }
+
 /** Indices of the blocks to show when the blocks in [folded] have their children hidden. */
 fun visibleBlocks(blocks: List<MdBlock>, folded: Set<Int>): List<Int> {
     val out = ArrayList<Int>(blocks.size)
