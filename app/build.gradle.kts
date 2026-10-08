@@ -13,8 +13,11 @@ android {
         applicationId = "com.s1nn3rv2.kartka"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        // Releases take their version from the git tag (v1.2.3 -> versionName 1.2.3, versionCode 10203), so app
+        // stores like Obtainium see the installed version match the release. Local builds stay 1.0.
+        val tag = System.getenv("KARTKA_VERSION")?.removePrefix("v")?.takeIf { Regex("""\d+(\.\d+){0,2}""").matches(it) }
+        versionName = tag ?: "1.0"
+        versionCode = tag?.split('.')?.map(String::toInt)?.let { p -> p.getOrElse(0) { 0 } * 10000 + p.getOrElse(1) { 0 } * 100 + p.getOrElse(2) { 0 } } ?: 1
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

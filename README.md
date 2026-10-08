@@ -38,7 +38,24 @@ The app has no internet permission, no analytics and no crash reporting.
 
 ## Install
 
-There are no prebuilt releases yet. To build it yourself you need the Android SDK (easiest with Android Studio).
+Download the APK from the [latest release](../../releases/latest), or let
+[Obtainium](https://github.com/ImranR98/Obtainium) keep it up to date: add this repository's URL as a new app.
+
+### Verify the download
+
+Every release is signed with the same key. To check that an APK really comes from this repository, compare its
+signing certificate with this SHA-256 fingerprint, for example with [AppVerifier](https://github.com/soupslurpr/AppVerifier):
+
+```
+com.s1nn3rv2.kartka
+SHA-256 fingerprint of the signing certificate: (added with the first release)
+```
+
+Each release also has a `.sha256` file with the checksum of the APK file itself (`sha256sum -c kartka-v1.0.apk.sha256`).
+
+### Build it yourself
+
+To build it yourself you need the Android SDK (easiest with Android Studio).
 Gradle downloads the Java version it needs on its own:
 
 ```sh

@@ -44,6 +44,8 @@ jobs:
 
       - name: Build the APK
         env:
+          # Tags only (v1.2.3); other builds keep the default version.
+          KARTKA_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           KARTKA_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KARTKA_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KARTKA_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -53,18 +55,23 @@ jobs:
         run: |
           name="kartka-${GITHUB_REF_NAME//\//-}.apk"
           mv app/build/outputs/apk/release/app-release.apk "$name"
+          sha256sum "$name" > "$name.sha256"
           echo "APK=$name" >> "$GITHUB_ENV"
 
       # Every build: the APK is downloadable from the run's page for 30 days.
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.APK }}
-          path: ${{ env.APK }}
+          path: |
+            ${{ env.APK }}
+            ${{ env.APK }}.sha256
           retention-days: 30
 
       # Tags only: a GitHub release with the signed APK attached.
       - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: ${{ env.APK }}
+          files: |
+            ${{ env.APK }}
+            ${{ env.APK }}.sha256
           generate_release_notes: true
