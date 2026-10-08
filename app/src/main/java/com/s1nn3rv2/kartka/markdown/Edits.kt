@@ -184,7 +184,7 @@ object Edits {
 
 /**
  * Undo history for the editor. Typing within [mergeMs] of the previous change, at the position where it ended,
- * merges into one step, so undo removes words rather than single letters.
+ * merges into one step, so undo removes words rather than single letters. A line break always starts a new step.
  */
 class UndoStack(private val mergeMs: Long = 1000, private val limit: Int = 200) {
     private data class Change(val start: Int, val removed: String, val inserted: String, val time: Long)
@@ -200,7 +200,7 @@ class UndoStack(private val mergeMs: Long = 1000, private val limit: Int = 200) 
         redo.clear()
         val last = undo.lastOrNull()
         if (last != null && time - last.time < mergeMs && removed.isEmpty() && last.removed.isEmpty() &&
-            start == last.start + last.inserted.length && !inserted.contains('\n')
+            start == last.start + last.inserted.length && !inserted.contains('\n') && !last.inserted.contains('\n')
         ) {
             undo[undo.lastIndex] = last.copy(inserted = last.inserted + inserted, time = time)
             return

@@ -77,4 +77,12 @@ class EditsTest {
         assertTrue(u.canRedo)
         assertEquals(Triple(0, 0, "hi"), u.redo())
     }
+
+    // Enter, then the auto-inserted "- [ ] ", then typing: undo first removes "- [ ] eggs", then the line break.
+    @Test fun lineBreakStartsANewUndoStep() {
+        val u = UndoStack(mergeMs = 1000)
+        u.record(11, "", "\n", 0); u.record(12, "", "- [ ] ", 10); u.record(18, "", "eggs", 20)
+        assertEquals(Triple(12, 10, ""), u.undo())
+        assertEquals(Triple(11, 1, ""), u.undo())
+    }
 }

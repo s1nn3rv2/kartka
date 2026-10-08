@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -98,6 +99,8 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
     // The editor is built hidden shortly after the note opens: laying out a long note takes ~100 ms of main-thread
     // time, which would otherwise land on the Edit tap. Edit and Done then only switch which layer is on top.
     var editor by remember(path) { mutableStateOf<MarkdownEditText?>(null) }
+    var canUndo by remember(path) { mutableStateOf(false) }
+    var canRedo by remember(path) { mutableStateOf(false) }
     var prepareEditor by remember(path) { mutableStateOf(isNew) }
     LaunchedEffect(blocks) {
         if (blocks == null) return@LaunchedEffect
@@ -186,6 +189,10 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
                             addView(
                                 MarkdownEditText(context, colors).also { e ->
                                     e.onEdited = { session.editorChanged { e.text.toString() } }
+                                    e.onHistoryChanged = {
+                                        canUndo = e.canUndo
+                                        canRedo = e.canRedo
+                                    }
                                     editor = e
                                 },
                                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
@@ -221,6 +228,10 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                     contentPadding = PaddingValues(bottom = 24.dp),
                 )
+            }
+            val e = editor
+            if (editing && e != null) {
+                EditToolbar(e, canUndo, canRedo, Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp))
             }
         }
     }

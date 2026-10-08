@@ -9,7 +9,10 @@ import android.text.Spanned
 import android.text.TextWatcher
 import android.view.Gravity
 import android.widget.EditText
+import com.s1nn3rv2.kartka.markdown.Edit
+import com.s1nn3rv2.kartka.markdown.Edits
 import com.s1nn3rv2.kartka.markdown.StyleBuilder
+import com.s1nn3rv2.kartka.markdown.UndoStack
 import com.s1nn3rv2.kartka.markdown.StyleRange
 import com.s1nn3rv2.kartka.markdown.changedWindow
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +44,18 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
     /** Called after every user edit. */
     var onEdited: (() -> Unit)? = null
 
+    /** Called when undo or redo becomes available or unavailable. */
+    var onHistoryChanged: (() -> Unit)? = null
+
+    private val history = UndoStack()
+    val canUndo get() = history.canUndo
+    val canRedo get() = history.canRedo
+
+    /** Set while the editor changes its own text (undo, redo, list continuation), so those are not re-recorded. */
+    private var internalEdit = false
+    private var removed: CharSequence = ""
+    private var insertedNewlineAt = -1
+
     init {
         background = null
         gravity = Gravity.TOP or Gravity.START
@@ -49,22 +64,77 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
         textSize = 16f
         setTextColor(colors.text)
         val pad = style.dp(20f).toInt()
-        setPadding(pad, style.dp(8f).toInt(), pad, style.dp(24f).toInt())
+        // Room at the bottom so the last lines can scroll above the floating formatting toolbar.
+        setPadding(pad, style.dp(8f).toInt(), pad, style.dp(96f).toInt())
         // Keep our FastEditable instead of copying 75 KB on every setText.
         setEditableFactory(object : Editable.Factory() {
             override fun newEditable(source: CharSequence) = source as? FastEditable ?: FastEditable(source)
         })
         addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {
-                if (!loading) version++
+            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
+                if (loading) return
+                version++
+                removed = s.subSequence(start, start + count).toString()
             }
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
+                if (loading) return
+                val inserted = s.subSequence(start, start + count).toString()
+                if (!internalEdit) {
+                    history.record(start, removed.toString(), inserted, System.currentTimeMillis())
+                    insertedNewlineAt = if (inserted == "\n" && removed.isEmpty()) start + 1 else -1
+                }
+            }
             override fun afterTextChanged(s: Editable) {
                 if (loading) return
+                if (insertedNewlineAt >= 0) {
+                    val at = insertedNewlineAt
+                    insertedNewlineAt = -1
+                    // Enter on a list item continues the list (or ends it on an empty item). Recorded like any edit.
+                    Edits.continueList(s.toString(), at)?.let { post { replaceWith(it) } }
+                }
                 scheduleParse()
                 onEdited?.invoke()
+                onHistoryChanged?.invoke()
             }
         })
+    }
+
+    /** Applies a toolbar operation to the text and selection. */
+    fun applyEdit(op: (Edit) -> Edit) {
+        val t = text.toString()
+        // A selection made backwards has its start after its end; operations expect them in order.
+        val a = minOf(selectionStart, selectionEnd).coerceAtLeast(0)
+        val b = maxOf(selectionStart, selectionEnd).coerceAtLeast(0)
+        replaceWith(op(Edit(t, a, b)))
+    }
+
+    /** Turns the text into [target] with one minimal replacement, so spans, cursor and undo stay accurate. */
+    private fun replaceWith(target: Edit) {
+        val t = text.toString()
+        val n = target.text
+        if (n != t) {
+            var p = 0
+            while (p < t.length && p < n.length && t[p] == n[p]) p++
+            var q = 0
+            while (q < t.length - p && q < n.length - p && t[t.length - 1 - q] == n[n.length - 1 - q]) q++
+            editableText.replace(p, t.length - q, n, p, n.length - q)
+        }
+        setSelection(target.start.coerceIn(0, length()), target.end.coerceIn(0, length()))
+    }
+
+    fun undo() = history.undo()?.let(::applyHistory)
+    fun redo() = history.redo()?.let(::applyHistory)
+
+    private fun applyHistory(step: Triple<Int, Int, String>) {
+        val (start, length, insert) = step
+        internalEdit = true
+        try {
+            editableText.replace(start, (start + length).coerceAtMost(length()), insert)
+            setSelection((start + insert.length).coerceAtMost(length()))
+        } finally {
+            internalEdit = false
+        }
+        onHistoryChanged?.invoke()
     }
 
     fun setColors(colors: EditorColors) {
@@ -89,6 +159,8 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
         parsedVersion = version
         appliedLength = markdown.length
         ranges = parsed
+        history.clear()
+        onHistoryChanged?.invoke()
     }
 
     private fun scheduleParse() {
