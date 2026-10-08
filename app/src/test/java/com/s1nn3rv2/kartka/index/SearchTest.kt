@@ -35,6 +35,17 @@ class SearchTest {
         assertEquals(setOf("trening", "zdrowie/silownia"), tags("# Heading\n#trening and #zdrowie/silownia, not a#b or #123"))
     }
 
+    // [[links]] must find notes the way Obsidian does: by name, case-insensitive, preferring the same folder.
+    @Test fun resolvesWikiLinks() {
+        val metas = listOf(NoteMeta("Ideas.md", 0, 0), NoteMeta("Work/Ideas.md", 0, 0), NoteMeta("Recipes/Pancakes.md", 0, 0))
+        assertEquals("Ideas.md", resolveLink(metas, "ideas", fromFolder = ""))
+        assertEquals("Work/Ideas.md", resolveLink(metas, "Ideas", fromFolder = "Work"))
+        assertEquals("Work/Ideas.md", resolveLink(metas, "Work/Ideas#Next steps", fromFolder = ""))
+        assertEquals("Recipes/Pancakes.md", resolveLink(metas, "Pancakes.md", fromFolder = ""))
+        assertEquals(null, resolveLink(metas, "Missing", fromFolder = ""))
+        assertEquals(setOf("ideas", "pancakes"), wikiLinks("See [[Work/Ideas|my ideas]] and [[Pancakes#Batter]]"))
+    }
+
     @Test fun snippetHighlightsTheMatch() {
         val r = search(notes, "hooks").single()
         assertTrue(r.highlights.isNotEmpty())

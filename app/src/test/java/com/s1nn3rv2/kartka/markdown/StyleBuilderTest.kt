@@ -25,6 +25,15 @@ class StyleBuilderTest {
         assertTrue(texts(md, Kind.CODE_BLOCK).single().contains("const a = 1;"))
     }
 
+    // Wiki links, tags and highlights must be colored in Edit mode too, also inside dedented Logseq bullets.
+    @Test fun notesInlines() {
+        val md = "# H\n\t- see [[Other note|other]] and ==this== #todo\n"
+        assertEquals(listOf("Other note|other"), texts(md, Kind.LINK))
+        assertEquals(listOf("this"), texts(md, Kind.HIGHLIGHT))
+        assertEquals(listOf("#todo"), texts(md, Kind.TAG))
+        assertEquals(listOf("#", "[[", "]]", "==", "=="), texts(md, Kind.MARKER))
+    }
+
     @Test fun tableSyntaxIsDimmed() {
         val md = "| a | b |\n|---|---|\n| 1 | 2 |\n"
         assertEquals(6 + 1, texts(md, Kind.MARKER).size)

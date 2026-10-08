@@ -178,6 +178,16 @@ class Notes(context: Context) {
     private suspend fun <T> io(block: (NotesRepository) -> T): T? =
         withContext(Dispatchers.IO) { repository?.let(block) }.also { refreshSoon() }
 
+    /** Where `[[target]]` in the note at [from] leads, if that note exists. */
+    fun resolveLink(target: String, from: String): String? =
+        com.s1nn3rv2.kartka.index.resolveLink(state.value.notes, target, from.substringBeforeLast('/', ""))
+
+    /** Notes that link to [path] with `[[its name]]`, newest first. */
+    fun backlinks(path: String): List<NoteMeta> {
+        val name = path.substringAfterLast('/').removeSuffix(".md").lowercase()
+        return index.values.filter { it.meta.path != path && name in it.links }.map { it.meta }.sortedByDescending { it.modified }
+    }
+
     suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.Default) { search(index.values, query) }
 
     /** Notes that are indexed, for things like backlinks later. */

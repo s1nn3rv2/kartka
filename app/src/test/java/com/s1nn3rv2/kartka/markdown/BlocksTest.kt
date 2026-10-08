@@ -40,6 +40,29 @@ class BlocksTest {
         assertEquals(listOf(6 to 6, 7 to 16), t.columns)
     }
 
+    // Wiki links, tags and highlights become their own styled spans; tags inside URLs stay part of the link.
+    @Test fun notesInlines() {
+        val p = BlockBuilder.build("See [[Work/Ideas|my ideas]], #todo and ==this== at https://x.com/#frag\n").single() as MdParagraph
+        val styles = p.text.spans.map { it.style to p.text.text.substring(it.start, it.end) }
+        assertEquals(
+            listOf(
+                InlineStyle.WIKILINK to "my ideas", InlineStyle.TAG to "#todo", InlineStyle.HIGHLIGHT to "this",
+                InlineStyle.LINK to "https://x.com/#frag",
+            ),
+            styles,
+        )
+        assertEquals("Work/Ideas", p.text.spans[0].url)
+    }
+
+    // Obsidian callouts: the [!type] line becomes a header; the quote's text carries the type for its tint.
+    @Test fun callouts() {
+        val b = BlockBuilder.build("> [!warning] Watch out\n> Hot pan.\n\n> plain quote\n")
+        assertEquals(MdCallout("warning", "Watch out", 0), b[0])
+        assertEquals(MdParagraph(Inline("Hot pan."), 0, "warning"), b[1])
+        assertEquals("", (b[2] as MdParagraph).quote)
+        assertEquals("Note", (BlockBuilder.build("> [!note]\n> body\n")[0] as MdCallout).title)
+    }
+
     @Test fun foldBulletHidesDeeperBlocks() {
         val b = BlockBuilder.build("- a\n\t- b\n\n\t  more\n- c\n")
         val a = b.indexOfFirst { (it as? MdListItem)?.text?.text == "a" }

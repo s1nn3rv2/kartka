@@ -6,7 +6,7 @@ import org.junit.Test
 class RouteTest {
     // The back stack is saved as these strings; paths can contain ':' and must survive a round trip.
     @Test fun roundTrip() {
-        for (r in listOf(Route.Home, Route.Settings, Route.Trash, Route.Scratch, Route.Folder("Recipes/Ca:kes"), Route.Note("a:b/c.md"))) {
+        for (r in listOf(Route.Home, Route.Settings, Route.Trash, Route.Scratch, Route.Folder("Recipes/Ca:kes"), Route.Tag("zdrowie/silownia"), Route.Note("a:b/c.md"))) {
             assertEquals(r, Route.decode(r.encode()))
         }
         // A restored new note opens like an existing one: its title focus already happened.

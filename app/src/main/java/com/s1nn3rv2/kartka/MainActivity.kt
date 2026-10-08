@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.s1nn3rv2.kartka.ui.SlideStack
 import com.s1nn3rv2.kartka.ui.home.HiddenNotesScreen
 import com.s1nn3rv2.kartka.ui.home.HomeScreen
+import com.s1nn3rv2.kartka.ui.home.TagScreen
 import com.s1nn3rv2.kartka.ui.rememberSlideStack
 import com.s1nn3rv2.kartka.ui.settings.SettingsScreen
 import com.s1nn3rv2.kartka.ui.share.ShareSheet
@@ -45,6 +46,7 @@ sealed interface Route {
     data object Trash : Route
     data object Scratch : Route
     data class Folder(val path: String) : Route
+    data class Tag(val name: String) : Route
     /** [isNew]: just created, so it opens in Edit mode with the title field focused. */
     data class Note(val path: String, val isNew: Boolean = false) : Route
 
@@ -55,6 +57,7 @@ sealed interface Route {
         Trash -> "trash"
         Scratch -> "scratch"
         is Folder -> "folder:$path"
+        is Tag -> "tag:$name"
         is Note -> "note:${if (isNew) 1 else 0}:$path"
     }
 
@@ -64,6 +67,7 @@ sealed interface Route {
             s == "trash" -> Trash
             s == "scratch" -> Scratch
             s.startsWith("folder:") -> Folder(s.removePrefix("folder:"))
+            s.startsWith("tag:") -> Tag(s.removePrefix("tag:"))
             // A restored note is no longer "new": the title focus and edit start already happened.
             s.startsWith("note:") -> Note(s.substringAfter(':').substringAfter(':'))
             else -> Home
@@ -203,10 +207,26 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
                 )
             }
             Route.Settings -> SettingsScreen(notes, onBack = { back() })
+            is Route.Tag -> TagScreen(notes, route.name, onOpenNote = { openNote(it) }, onBack = { back() })
             Route.Trash -> HiddenNotesScreen(notes, trash = true, onOpenNote = { openNote(it) }, onBack = { back() }, snackbar = snackbar)
             Route.Scratch -> HiddenNotesScreen(notes, trash = false, onOpenNote = { openNote(it) }, onBack = { back() }, snackbar = snackbar)
             is Route.Note -> {
-                NoteScreen(app, route.path, route.isNew, onBack = { back() }, onTrashed = ::trashed)
+                NoteScreen(
+                    app, route.path, route.isNew,
+                    onBack = { back() },
+                    onTrashed = ::trashed,
+                    onOpenNote = { openNote(it) },
+                    // A link to a note that doesn't exist yet creates it, like in Obsidian.
+                    onOpenWikiLink = { target, from ->
+                        scope.launch {
+                            val found = notes.resolveLink(target, from)
+                            if (found != null) openNote(found)
+                            else notes.createWith("", notes.defaultFolder, scratch = false, title = target.substringBefore('#').substringAfterLast('/'))
+                                ?.let { openNote(it, isNew = true) }
+                        }
+                    },
+                    onOpenTag = { stack.push(Route.Tag(it)) },
+                )
             }
         }
     }

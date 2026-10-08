@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.markdown
 
+import org.commonmark.ext.autolink.AutolinkExtension
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TablesExtension
 import org.commonmark.ext.task.list.items.TaskListItemsExtension
@@ -10,7 +11,10 @@ import org.commonmark.parser.Parser
 /** The one markdown parser setup, shared by View mode (blocks) and Edit mode (colors). */
 object Md {
     private val parser: Parser = Parser.builder()
-        .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create()))
+        .extensions(
+            listOf(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create(), AutolinkExtension.create()),
+        )
+        .postProcessor(NotesInlinesPostProcessor())
         .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
         .build()
 

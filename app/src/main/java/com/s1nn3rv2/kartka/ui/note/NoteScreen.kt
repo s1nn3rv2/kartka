@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
@@ -42,6 +44,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ModalBottomSheet
@@ -78,10 +82,12 @@ import com.s1nn3rv2.kartka.editor.EditorColors
 import com.s1nn3rv2.kartka.editor.MarkdownEditText
 import com.s1nn3rv2.kartka.markdown.BlockBuilder
 import com.s1nn3rv2.kartka.markdown.MdBlock
+import com.s1nn3rv2.kartka.markdown.InlineStyle
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
 import com.s1nn3rv2.kartka.markdown.foldEnd
 import com.s1nn3rv2.kartka.markdown.visibleBlocks
+import com.s1nn3rv2.kartka.storage.NoteMeta
 import com.s1nn3rv2.kartka.storage.PathRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -90,7 +96,16 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit, onTrashed: (trashPath: String) -> Unit) {
+fun NoteScreen(
+    app: KartkaApp,
+    path: String,
+    isNew: Boolean,
+    onBack: () -> Unit,
+    onTrashed: (trashPath: String) -> Unit,
+    onOpenNote: (path: String) -> Unit,
+    onOpenWikiLink: (target: String, from: String) -> Unit,
+    onOpenTag: (tag: String) -> Unit,
+) {
     // Opened notes arrive already read and parsed, so the first frame shows the content (no blank flash).
     val prepared = remember(path) { app.notes.takePrepared(path) }
     val session = remember(path) { NoteSession(app.notes, path, app.scope, prepared?.loaded) }
@@ -119,6 +134,7 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
     var showOutline by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
+    var showBacklinks by remember { mutableStateOf(false) }
     LaunchedEffect(blocks) {
         val b = blocks ?: return@LaunchedEffect
         if (folded == null || folded!!.any { it >= b.size }) {
@@ -146,8 +162,9 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
             session.editorText = t
         }
     }
-    // New notes start with an empty title field (blank keeps the date-time file name); the title is the file name.
-    val title = rememberTextFieldState(if (isNew) "" else PathRules.title(path.substringAfterLast('/')))
+    // New untitled notes start with an empty title field (blank keeps the date-time file name); the title is the file name.
+    val untitled = isNew && autoName.matches(path.substringAfterLast('/'))
+    val title = rememberTextFieldState(if (untitled) "" else PathRules.title(path.substringAfterLast('/')))
     val titleFocus = remember { FocusRequester() }
     val context = LocalContext.current
     fun focusEditor() {
@@ -156,8 +173,8 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
             context.getSystemService(InputMethodManager::class.java)?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
         }
     }
-    LaunchedEffect(Unit) { if (isNew) titleFocus.requestFocus() }
-    LaunchedEffect(editing, editor) { if (editing && !isNew) focusEditor() }
+    LaunchedEffect(Unit) { if (untitled) titleFocus.requestFocus() }
+    LaunchedEffect(editing, editor) { if (editing && !untitled) focusEditor() }
 
     fun finishEditing() {
         session.saveNow()
@@ -191,6 +208,20 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
                 }
             },
             onDismiss = { showOutline = false },
+        )
+    }
+
+    if (showBacklinks) {
+        val linking = remember(session.path) { app.notes.backlinks(session.path) }
+        NoteListSheet(
+            title = "Backlinks",
+            empty = "No notes link here yet. Link to this note with [[${PathRules.title(session.path.substringAfterLast('/'))}]].",
+            notes = linking,
+            onPick = {
+                showBacklinks = false
+                onOpenNote(it)
+            },
+            onDismiss = { showBacklinks = false },
         )
     }
 
@@ -249,6 +280,14 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
                                     },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("Backlinks") },
+                                leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    showBacklinks = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Move to folder") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, contentDescription = null) },
@@ -326,6 +365,13 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
                     blocks = b,
                     folded = f,
                     onToggleFold = { i -> folded = if (i in f) f - i else f + i },
+                    onLink = { span ->
+                        when (span.style) {
+                            InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)
+                            InlineStyle.TAG -> onOpenTag(span.url.orEmpty())
+                            else -> Unit
+                        }
+                    },
                     onToggleTask = { task ->
                         text?.let { t ->
                             if (task.offset in t.indices) {
@@ -350,6 +396,34 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
 private fun initialFolds(blocks: List<MdBlock>) = blocks.indices.filter { (blocks[it] as? MdListItem)?.collapsed == true }.toSet()
 
 /** The note's title, edited in place in the top bar; it becomes the file name when editing ends. */
+/** A sheet listing notes (backlinks); tapping one opens it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NoteListSheet(title: String, empty: String, notes: List<NoteMeta>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(title, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp))
+        if (notes.isEmpty()) {
+            Text(
+                empty,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+            )
+        }
+        LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+            itemsIndexed(notes, key = { _, m -> m.path }) { i, meta ->
+                SegmentedListItem(
+                    onClick = { onPick(meta.path) },
+                    shapes = ListItemDefaults.segmentedShapes(index = i, count = notes.size),
+                    colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    overlineContent = meta.folder.takeIf { it.isNotEmpty() }?.let { { Text(it, maxLines = 1) } },
+                    modifier = Modifier.padding(bottom = ListItemDefaults.SegmentedGap),
+                ) { Text(meta.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+    }
+}
+
 /** Picks the folder to move a note into. */
 @Composable
 private fun MoveDialog(folders: List<String>, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
@@ -414,6 +488,9 @@ private fun TitleField(state: TextFieldState, focus: FocusRequester, onNext: () 
     )
 }
 
+/** The date-time file name that NotesRepository.create gives notes without a title. */
+private val autoName = Regex("""\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}( \d+)?\.md""")
+
 @Composable
 private fun editorColors(): EditorColors {
     val scheme = MaterialTheme.colorScheme
@@ -424,5 +501,7 @@ private fun editorColors(): EditorColors {
         tertiary = scheme.tertiary.toArgb(),
         codeBackground = scheme.surfaceContainerHigh.toArgb(),
         inlineCodeBackground = scheme.surfaceContainerHighest.toArgb(),
+        highlight = scheme.tertiaryContainer.toArgb(),
+        onHighlight = scheme.onTertiaryContainer.toArgb(),
     )
 }

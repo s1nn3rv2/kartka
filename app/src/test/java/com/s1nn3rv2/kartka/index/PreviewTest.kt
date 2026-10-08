@@ -12,6 +12,11 @@ class PreviewTest {
         assertEquals("HTML · Describe the <script> tag · done link", preview(md))
     }
 
+    // Previews show what View mode shows: link labels, not link targets or callout syntax.
+    @Test fun wikiLinksAndCallouts() {
+        assertEquals("See my plan and Other · Careful", preview("See [[Plan|my plan]] and [[Other]]\n> [!warning] Careful\n"))
+    }
+
     @Test fun truncates() {
         assertEquals("aaaaa…", preview("a".repeat(20), max = 5))
     }

@@ -24,6 +24,8 @@ data class EditorColors(
     val tertiary: Int,
     val codeBackground: Int,
     val inlineCodeBackground: Int,
+    val highlight: Int,
+    val onHighlight: Int,
 )
 
 /** Shared, mutable drawing context for all spans of one editor. */
@@ -58,6 +60,8 @@ fun createSpan(r: StyleRange, style: EditorStyle): MdSpan = when (r.kind) {
     Kind.QUOTE -> ColorSpan(r, style) { it.dim }
     Kind.LIST_MARKER -> ColorSpan(r, style) { it.primary }
     Kind.TASK_DONE -> TaskDoneSpan(r, style)
+    Kind.TAG -> ColorSpan(r, style) { it.tertiary }
+    Kind.HIGHLIGHT -> HighlightSpan(r, style)
 }
 
 class ColorSpan(override val spec: StyleRange, private val style: EditorStyle, private val color: (EditorColors) -> Int) :
@@ -107,6 +111,13 @@ class CodeBlockSpan(override val spec: StyleRange, private val style: EditorStyl
         path.addRoundRect(rect, floatArrayOf(t, t, t, t, b, b, b, b), Path.Direction.CW)
         canvas.drawPath(path, paint)
         paint.color = old
+    }
+}
+
+class HighlightSpan(override val spec: StyleRange, private val style: EditorStyle) : CharacterStyle(), MdSpan {
+    override fun updateDrawState(tp: TextPaint) {
+        tp.color = style.colors.onHighlight
+        tp.bgColor = style.colors.highlight
     }
 }
 

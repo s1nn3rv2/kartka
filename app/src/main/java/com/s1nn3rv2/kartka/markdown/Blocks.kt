@@ -26,8 +26,9 @@ import org.commonmark.node.StrongEmphasis
 import org.commonmark.node.Text
 import org.commonmark.node.ThematicBreak
 
-enum class InlineStyle { STRONG, EMPH, STRIKE, CODE, LINK }
+enum class InlineStyle { STRONG, EMPH, STRIKE, CODE, LINK, WIKILINK, TAG, HIGHLIGHT }
 
+/** [url]: the link address, the wiki link target, or the tag name. */
 data class InlineSpan(val start: Int, val end: Int, val style: InlineStyle, val url: String? = null)
 
 /** Rendered inline text: plain characters plus style ranges over them. */
@@ -39,7 +40,11 @@ sealed interface MdBlock {
 }
 
 data class MdHeading(val level: Int, val text: Inline, override val indent: Int) : MdBlock
-data class MdParagraph(val text: Inline, override val indent: Int, val quote: Boolean) : MdBlock
+/** [quote]: null for normal text, "" inside a plain quote, or the callout type ("note", "warning"…) inside a callout. */
+data class MdParagraph(val text: Inline, override val indent: Int, val quote: String?) : MdBlock
+
+/** The header line of an Obsidian-style callout: `> [!type] Title`. */
+data class MdCallout(val type: String, val title: String, override val indent: Int) : MdBlock
 
 /** [marker] is "•" or "3."; [task] is set for `- [ ]` items; [collapsed] comes from Logseq's `collapsed:: true`. */
 data class MdListItem(
@@ -67,22 +72,23 @@ data class MdTable(
 /** Pure Kotlin: markdown text in, View-mode rows out. */
 object BlockBuilder {
     private val property = Regex("""^[\w-]+:: ?(.*)$""")
+    private val calloutMarker = Regex("""^\[!(\w+)][+-]?[ \t]*""")
 
     fun build(text: String): List<MdBlock> {
         val (doc, dedent) = Md.parse(text)
         val out = ArrayList<MdBlock>()
-        Walker(dedent, out).blocks(doc.firstChild, indent = 0, quote = false)
+        Walker(dedent, out).blocks(doc.firstChild, indent = 0, quote = null)
         return out
     }
 
     private class Walker(val dedent: Dedent, val out: MutableList<MdBlock>) {
-        fun blocks(first: Node?, indent: Int, quote: Boolean) {
+        fun blocks(first: Node?, indent: Int, quote: String?) {
             var n = first
             while (n != null) {
                 when (n) {
                     is Heading -> out += MdHeading(n.level, inline(n).first, indent)
                     is Paragraph -> inline(n).first.takeIf { it.text.isNotBlank() }?.let { out += MdParagraph(it, indent, quote) }
-                    is BlockQuote -> blocks(n.firstChild, indent, quote = true)
+                    is BlockQuote -> blockQuote(n, indent)
                     is BulletList -> items(n, indent, quote, null)
                     is OrderedList -> items(n, indent, quote, n.markerStartNumber ?: 1)
                     is FencedCodeBlock -> out += MdCode(n.literal.trimEnd('\n'), n.info?.takeIf { it.isNotBlank() }, indent)
@@ -96,7 +102,27 @@ object BlockBuilder {
             }
         }
 
-        fun items(list: Node, indent: Int, quote: Boolean, start: Int?) {
+        /** A quote, or a callout when its first line is `[!type] Title` (the marker line is taken out of the text). */
+        fun blockQuote(quote: BlockQuote, indent: Int) {
+            val firstText = (quote.firstChild as? Paragraph)?.firstChild as? Text
+            val marker = firstText?.let { calloutMarker.find(it.literal) }
+            if (marker == null) return blocks(quote.firstChild, indent, quote = "")
+            val type = marker.groupValues[1].lowercase()
+            // The title is the rest of the first line: everything up to the first line break.
+            val title = StringBuilder(firstText.literal.substring(marker.value.length))
+            var n = firstText.next
+            firstText.unlink()
+            while (n != null && n !is SoftLineBreak && n !is HardLineBreak) {
+                val next = n.next
+                title.append(inline(Paragraph().apply { appendChild(n) }).first.text)
+                n = next
+            }
+            n?.unlink()
+            out += MdCallout(type, title.toString().trim().ifEmpty { type.replaceFirstChar { it.uppercase() } }, indent)
+            blocks(quote.firstChild, indent, quote = type)
+        }
+
+        fun items(list: Node, indent: Int, quote: String?, start: Int?) {
             var number = start
             var item = list.firstChild
             while (item != null) {
@@ -189,6 +215,9 @@ object BlockBuilder {
                         is StrongEmphasis -> styled(c, InlineStyle.STRONG, walk = ::walk)
                         is Strikethrough -> styled(c, InlineStyle.STRIKE, walk = ::walk)
                         is Link -> styled(c, InlineStyle.LINK, c.destination, ::walk)
+                        is WikiLink -> styled(c, InlineStyle.WIKILINK, c.target) { sb.append((it as WikiLink).label) }
+                        is Tag -> styled(c, InlineStyle.TAG, c.name) { sb.append('#').append((it as Tag).name) }
+                        is Highlight -> styled(c, InlineStyle.HIGHLIGHT, walk = ::walk)
                         is Image -> styled(c, InlineStyle.LINK, c.destination) { img ->
                             val before = sb.length
                             walk(img)

@@ -30,11 +30,29 @@ private val tagPattern = Regex("""(?<![\w#&/])#([\p{L}\p{N}_/-]*[\p{L}_][\p{L}\p
 /** `#tags` in the text, lowercased and without the `#`. Markdown headings ("# Title") are not tags. */
 fun tags(text: String): Set<String> = tagPattern.findAll(text).map { it.groupValues[1].lowercase() }.toSet()
 
+private val wikiLinkPattern = Regex("""\[\[([^\[\]\n|#]+)""")
+
+/** Lowercased note names a text links to with `[[…]]` (folders and `#heading` parts dropped). */
+fun wikiLinks(text: String): Set<String> =
+    wikiLinkPattern.findAll(text).map { it.groupValues[1].trim().substringAfterLast('/').lowercase() }.toSet()
+
+/**
+ * The note a `[[target]]` points to: matched by name, or by folder path when the target has one, ignoring case and
+ * any `#heading` or `.md`. Ties prefer the linking note's own folder, then the shortest path. Null when none exists.
+ */
+fun resolveLink(notes: List<NoteMeta>, target: String, fromFolder: String): String? {
+    val t = target.substringBefore('#').trim().removeSuffix(".md").lowercase()
+    if (t.isEmpty()) return null
+    return notes.filter { m -> m.path.removeSuffix(".md").lowercase().let { it == t || it.endsWith("/$t") } }
+        .minWithOrNull(compareBy({ if (it.folder == fromFolder) 0 else 1 }, { it.path.length }))?.path
+}
+
 /** What the index keeps per note: the metadata plus normalized text for matching. */
 class IndexedNote(val meta: NoteMeta, val text: String) {
     val normTitle = normalize(meta.title)
     val normText = normalize(text)
     val tags = tags(text)
+    val links = wikiLinks(text)
 }
 
 /** A search hit. [snippet] is a piece of the note around the first match; [highlights] are ranges inside it. */

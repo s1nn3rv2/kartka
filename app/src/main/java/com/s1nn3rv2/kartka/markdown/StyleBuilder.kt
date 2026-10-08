@@ -22,7 +22,7 @@ import org.commonmark.node.ThematicBreak
 
 /** What a range of source text is, for Edit-mode coloring. Markdown symbols stay visible, only dimmed. */
 enum class Kind {
-    MARKER, HEADING, STRONG, EMPH, STRIKE, INLINE_CODE, LINK, CODE_BLOCK, QUOTE, LIST_MARKER, TASK_DONE
+    MARKER, HEADING, STRONG, EMPH, STRIKE, INLINE_CODE, LINK, CODE_BLOCK, QUOTE, LIST_MARKER, TASK_DONE, TAG, HIGHLIGHT
 }
 
 /** [level]: heading level, otherwise 0. */
@@ -69,7 +69,13 @@ object StyleBuilder {
         override fun visit(node: Emphasis) = delimited(node, node.openingDelimiter.length, Kind.EMPH)
 
         override fun visit(node: CustomNode) {
-            if (node is Strikethrough) delimited(node, node.openingDelimiter.length, Kind.STRIKE) else visitChildren(node)
+            when (node) {
+                is Strikethrough -> delimited(node, node.openingDelimiter.length, Kind.STRIKE)
+                is Highlight -> delimited(node, 2, Kind.HIGHLIGHT)
+                is WikiLink -> node.sourceSpans.singleOrNull()?.let { delimited(node, 2, Kind.LINK) }
+                is Tag -> node.sourceSpans.singleOrNull()?.let { add(it.inputIndex, it.end, Kind.TAG) }
+                else -> visitChildren(node)
+            }
         }
 
         fun delimited(node: Node, delim: Int, kind: Kind) {

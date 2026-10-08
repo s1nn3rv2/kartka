@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +27,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -35,10 +41,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -53,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import com.s1nn3rv2.kartka.markdown.Inline
 import com.s1nn3rv2.kartka.markdown.InlineStyle
 import com.s1nn3rv2.kartka.markdown.MdBlock
+import com.s1nn3rv2.kartka.markdown.InlineSpan
+import com.s1nn3rv2.kartka.markdown.MdCallout
 import com.s1nn3rv2.kartka.markdown.MdCode
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
@@ -76,6 +88,7 @@ fun MarkdownView(
     folded: Set<Int>,
     onToggleFold: (Int) -> Unit,
     onToggleTask: (Task) -> Unit,
+    onLink: (InlineSpan) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
     state: LazyListState = rememberLazyListState(),
@@ -84,15 +97,28 @@ fun MarkdownView(
     val foldable = remember(blocks) { BooleanArray(blocks.size) { canFold(blocks, it) } }
     SelectionContainer(modifier) {
         LazyColumn(state = state, contentPadding = contentPadding) {
-            items(visible, key = { it }, contentType = { blocks[it]::class }) { i ->
+            itemsIndexed(visible, key = { _, i -> i }, contentType = { _, i -> blocks[i]::class }) { pos, i ->
+                // Rows of one quote or callout are drawn as a single box.
+                val joinPrev = joins(visible.getOrNull(pos - 1)?.let { blocks[it] }, blocks[i])
+                val joinNext = joins(blocks[i], visible.getOrNull(pos + 1)?.let { blocks[it] })
                 Row(Modifier.padding(start = 4.dp + IndentStep * blocks[i].indent, end = 20.dp)) {
                     FoldArrow(foldable[i], i in folded, top(blocks[i])) { onToggleFold(i) }
-                    Block(blocks[i], onToggleTask)
+                    Block(blocks[i], joinPrev, joinNext, onToggleTask, onLink)
                 }
             }
         }
     }
 }
+
+private fun quoteOf(block: MdBlock?) = when (block) {
+    is MdCallout -> block.type
+    is MdParagraph -> block.quote
+    else -> null
+}
+
+/** True when [next] continues the quote or callout that [prev] is part of; a callout header always starts a new box. */
+private fun joins(prev: MdBlock?, next: MdBlock?) =
+    next !is MdCallout && quoteOf(next) != null && quoteOf(prev) == quoteOf(next) && prev?.indent == next?.indent
 
 /** Vertical space above a block; also offsets the fold arrow so it lines up with the block's first line. */
 private fun top(block: MdBlock) = when (block) {
@@ -118,10 +144,19 @@ private fun FoldArrow(foldable: Boolean, folded: Boolean, top: Dp, onClick: () -
 }
 
 @Composable
-private fun Block(block: MdBlock, onToggleTask: (Task) -> Unit) {
+private fun Block(block: MdBlock, joinPrev: Boolean, joinNext: Boolean, onToggleTask: (Task) -> Unit, onLink: (InlineSpan) -> Unit) {
+    @Composable
+    fun Inline.annotated() = annotated(onLink)
     val colors = MaterialTheme.colorScheme
     val type = MaterialTheme.typography
-    val modifier = Modifier.padding(top = top(block), bottom = if (block is MdListItem) 2.dp else 6.dp)
+    val modifier = Modifier.padding(
+        top = if (joinPrev) 0.dp else top(block),
+        bottom = if (joinNext) 0.dp else if (block is MdListItem) 2.dp else 6.dp,
+    )
+    val quoteShape = RoundedCornerShape(
+        topStart = if (joinPrev) 0.dp else 12.dp, topEnd = if (joinPrev) 0.dp else 12.dp,
+        bottomStart = if (joinNext) 0.dp else 12.dp, bottomEnd = if (joinNext) 0.dp else 12.dp,
+    )
     when (block) {
         is MdHeading -> Text(
             block.text.annotated(),
@@ -136,12 +171,14 @@ private fun Block(block: MdBlock, onToggleTask: (Task) -> Unit) {
             modifier = modifier,
         )
 
-        is MdParagraph -> if (block.quote) {
+        is MdParagraph -> if (block.quote != null) {
+            val (container, content) = calloutColors(block.quote)
             Text(
                 block.text.annotated(),
                 style = type.bodyLarge,
-                color = colors.onSurfaceVariant,
-                modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainer).padding(12.dp),
+                color = content,
+                modifier = modifier.fillMaxWidth().background(container, quoteShape)
+                    .padding(start = 12.dp, end = 12.dp, top = if (joinPrev) 4.dp else 12.dp, bottom = 12.dp),
             )
         } else {
             Text(block.text.annotated(), style = type.bodyLarge, modifier = modifier)
@@ -181,22 +218,56 @@ private fun Block(block: MdBlock, onToggleTask: (Task) -> Unit) {
         is MdTable -> Column(modifier.clip(RoundedCornerShape(8.dp)).border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp))) {
             // A column gets room for its longest word, plus a share of how much longer its cells run.
             val weights = block.columns.map { (word, cell) -> (word + (cell - word) * 0.5f).coerceAtLeast(3f) }
-            TableRow(block.header, weights, header = true)
-            block.rows.forEach { TableRow(it, weights, header = false) }
+            TableRow(block.header, weights, header = true, onLink)
+            block.rows.forEach { TableRow(it, weights, header = false, onLink) }
+        }
+
+        is MdCallout -> {
+            val (container, content) = calloutColors(block.type)
+            Row(
+                modifier.fillMaxWidth().background(container, quoteShape).padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(calloutIcon(block.type), contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(block.title, style = type.titleSmallEmphasized, color = content)
+            }
         }
 
         is MdRule -> HorizontalDivider(modifier.padding(vertical = 8.dp), color = colors.outlineVariant)
     }
 }
 
+/** Callout tints from the theme by kind: info, positive, cautionary or negative. "" is a plain quote. */
 @Composable
-private fun TableRow(cells: List<Inline>, weights: List<Float>, header: Boolean) {
+private fun calloutColors(type: String): Pair<Color, Color> {
+    val c = MaterialTheme.colorScheme
+    return when (type) {
+        "" -> c.surfaceContainer to c.onSurfaceVariant
+        "tip", "hint", "important", "success", "check", "done", "example" -> c.tertiaryContainer to c.onTertiaryContainer
+        "warning", "caution", "attention", "question", "help", "faq" -> c.secondaryContainer to c.onSecondaryContainer
+        "danger", "error", "bug", "failure", "fail", "missing" -> c.errorContainer to c.onErrorContainer
+        else -> c.primaryContainer to c.onPrimaryContainer
+    }
+}
+
+private fun calloutIcon(type: String): ImageVector = when (type) {
+    "tip", "hint", "important" -> Icons.Outlined.Lightbulb
+    "success", "check", "done" -> Icons.Outlined.CheckCircle
+    "warning", "caution", "attention" -> Icons.Outlined.Warning
+    "question", "help", "faq" -> Icons.AutoMirrored.Outlined.HelpOutline
+    "danger", "error", "bug", "failure", "fail", "missing" -> Icons.Outlined.ErrorOutline
+    else -> Icons.Outlined.Info
+}
+
+@Composable
+private fun TableRow(cells: List<Inline>, weights: List<Float>, header: Boolean, onLink: (InlineSpan) -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(Modifier.height(IntrinsicSize.Min).then(if (header) Modifier.background(colors.secondaryContainer) else Modifier)) {
         weights.forEachIndexed { i, w ->
             Box(Modifier.weight(w).fillMaxHeight().border(0.5.dp, colors.outlineVariant).padding(8.dp)) {
                 Text(
-                    cells.getOrNull(i)?.annotated() ?: AnnotatedString(""),
+                    cells.getOrNull(i)?.annotated(onLink) ?: AnnotatedString(""),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (header) FontWeight.Bold else null,
                 )
@@ -205,9 +276,11 @@ private fun TableRow(cells: List<Inline>, weights: List<Float>, header: Boolean)
     }
 }
 
+/** Wiki links and tags are tappable and reported through [onLink]; web links open in the browser. */
 @Composable
-private fun Inline.annotated(): AnnotatedString {
+private fun Inline.annotated(onLink: (InlineSpan) -> Unit): AnnotatedString {
     val colors = MaterialTheme.colorScheme
+    val currentOnLink by rememberUpdatedState(onLink)
     return remember(this, colors) {
         buildAnnotatedString {
             append(text)
@@ -223,6 +296,15 @@ private fun Inline.annotated(): AnnotatedString {
                     LinkAnnotation.Url(s.url.orEmpty(), TextLinkStyles(SpanStyle(color = colors.primary, textDecoration = TextDecoration.Underline))),
                     s.start, s.end,
                 )
+                InlineStyle.WIKILINK -> addLink(
+                    LinkAnnotation.Clickable(s.url.orEmpty(), TextLinkStyles(SpanStyle(color = colors.primary, fontWeight = FontWeight.Medium))) { currentOnLink(s) },
+                    s.start, s.end,
+                )
+                InlineStyle.TAG -> addLink(
+                    LinkAnnotation.Clickable(s.url.orEmpty(), TextLinkStyles(SpanStyle(color = colors.tertiary))) { currentOnLink(s) },
+                    s.start, s.end,
+                )
+                InlineStyle.HIGHLIGHT -> addStyle(SpanStyle(background = colors.tertiaryContainer, color = colors.onTertiaryContainer), s.start, s.end)
             }
         }
     }
