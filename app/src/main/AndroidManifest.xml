@@ -19,6 +19,8 @@
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Kartka">
+        <!-- Lets the computer's profiler (simpleperf, Android Studio) measure the release build; nothing on the phone uses it. -->
+        <profileable android:shell="true" />
         <activity
             android:name=".MainActivity"
             android:exported="false"

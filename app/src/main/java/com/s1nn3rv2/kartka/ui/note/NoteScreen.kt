@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Share
 import android.content.Intent
@@ -189,7 +191,14 @@ fun NoteScreen(
     var prepareEditor by remember(path) { mutableStateOf(isNew || editing) }
     LaunchedEffect(blocks) {
         if (blocks == null) return@LaunchedEffect
-        delay(700) // after the open transition, so the ~100 ms of layout can't stutter the slide
+        // After the open transition, and only once the note has been still for a moment: laying out a long note
+        // takes ~60 ms on the main thread (75 KB), which would stutter a scroll or fling in progress.
+        delay(700)
+        while (true) {
+            snapshotFlow { listState.isScrollInProgress }.first { !it }
+            delay(300)
+            if (!listState.isScrollInProgress) break
+        }
         prepareEditor = true
     }
     LaunchedEffect(editor, text) {
