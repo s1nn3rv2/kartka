@@ -32,10 +32,8 @@ enum class Kind {
     HEADING, STRONG, EMPH, STRIKE, INLINE_CODE, LINK, IMAGE,
     CODE_BLOCK, CODE_INFO, QUOTE,
     BULLET, ORDERED_MARKER, TASK, TASK_DONE,
-    /** First line of a list item, for the hanging indent of wrapped lines. `level`: indent columns, `data`: marker shape. */
+    /** First line of a list item, for the hanging indent of wrapped lines. `data`: the line's text before the item content. */
     LIST_ITEM,
-    /** Leading whitespace of a line; `level` is its width in columns (tab = 4). */
-    INDENT,
     HR, TABLE_ROW, TABLE_DELIMITER;
 
     /** Kinds drawn as something else when inactive and shown as plain source when the cursor is on them. */
@@ -72,12 +70,18 @@ object StyleBuilder {
             for (i in blocks.indices) blocks[i].let { blocks[i] = dedent.map(it.first) until dedent.mapEnd(it.last + 1) }
             for (i in headings.indices) headings[i].let { headings[i] = it.copy(start = dedent.map(it.start)) }
         }
-        indents(text, out)
-        // Android applies paragraph spans only from the paragraph start, so list items start at their line start.
-        // Indent columns come from the original text, since the parser may have seen it dedented.
+        // Android applies paragraph spans only from the paragraph start, so list items run from their line start;
+        // the prefix comes from the original text, since the parser may have seen it dedented.
         for (i in out.indices) out[i].let { r ->
-            if (r.kind == Kind.LIST_ITEM) out[i] = r.copy(start = lineStartOf(text, r.start), level = indentColumns(text, r.start))
+            if (r.kind == Kind.LIST_ITEM) {
+                val start = lineStartOf(text, r.start)
+                val end = text.indexOf('\n', r.end).let { if (it < 0) text.length else it }
+                out[i] = r.copy(start = start, end = end, data = text.substring(start, r.end))
+            } else if (r.kind == Kind.CODE_BLOCK || r.kind == Kind.QUOTE) {
+                out[i] = r.copy(start = lineStartOf(text, r.start))
+            }
         }
+        out.sortWith(rangeOrder)
         return MarkdownStyles(out, blocks, headings)
     }
 
@@ -87,15 +91,6 @@ object StyleBuilder {
         return i
     }
 
-    private fun indentColumns(text: String, offset: Int): Int {
-        var i = lineStartOf(text, offset)
-        var cols = 0
-        while (i < text.length && (text[i] == ' ' || text[i] == '\t')) {
-            cols += if (text[i] == '\t') 4 - cols % 4 else 1
-            i++
-        }
-        return cols
-    }
 
     /**
      * Logseq-style notes put tab-indented bullets directly under a heading. Standard markdown reads 4+ columns of
@@ -155,21 +150,6 @@ object StyleBuilder {
                 }
                 return Dedent(if (total == 0) text else sb.toString(), starts, removed)
             }
-        }
-    }
-
-    private fun indents(text: String, out: MutableList<StyleRange>) {
-        var lineStart = 0
-        while (lineStart < text.length) {
-            var i = lineStart
-            var cols = 0
-            while (i < text.length && (text[i] == ' ' || text[i] == '\t')) {
-                cols += if (text[i] == '\t') 4 - cols % 4 else 1
-                i++
-            }
-            if (i > lineStart && i < text.length && text[i] != '\n') out += StyleRange(lineStart, i, Kind.INDENT, cols)
-            val nl = text.indexOf('\n', i)
-            lineStart = if (nl < 0) text.length else nl + 1
         }
     }
 
@@ -275,9 +255,7 @@ object StyleBuilder {
             while (i < end && (text[i] == ' ' || text[i] == '\t')) i++
             val depth = generateSequence(item.parent) { it.parent }.count { it is ListBlock } - 1
             val itemStart = i
-            var shape: String
             if (item.parent is BulletList) {
-                shape = "b"
                 add(i, i + 1, Kind.BULLET, depth)
                 i++
             } else {
@@ -285,16 +263,17 @@ object StyleBuilder {
                 while (i < end && text[i].isDigit()) i++
                 i++ // '.' or ')'
                 add(markerStart, i, Kind.ORDERED_MARKER, depth)
-                shape = "o${i - markerStart}"
             }
             while (i < end && (text[i] == ' ' || text[i] == '\t')) i++
             if (i + 2 < text.length && text[i] == '[' && text[i + 2] == ']' && text[i + 1] in " xX") {
                 val checked = text[i + 1] != ' '
                 add(i, i + 3, Kind.TASK, if (checked) 1 else 0)
                 if (checked) add(i + 3, lineEnd(i), Kind.TASK_DONE)
-                shape = "t"
+                i += 3
+                while (i < end && (text[i] == ' ' || text[i] == '\t')) i++
             }
-            add(itemStart, lineEnd(itemStart), Kind.LIST_ITEM, data = shape)
+            // Item start to content start; build() widens it to the whole line and stores the prefix text.
+            out += StyleRange(itemStart, i, Kind.LIST_ITEM)
             visitChildren(item)
         }
 
@@ -345,6 +324,40 @@ object StyleBuilder {
             // Inline styles inside cells are drawn by the row span; skip children to avoid hidden markers in raw rows.
         }
     }
+}
+
+/** Document order, with ties broken on every field so equal parses give equal lists. */
+val rangeOrder: Comparator<StyleRange> =
+    compareBy<StyleRange>({ it.start }, { it.end }, { it.kind.ordinal }, { it.level }, { it.data })
+
+/**
+ * The region (in new-text offsets, end exclusive) where [new] differs from [old], given that the text grew by [delta]
+ * characters since [old] was built. Both lists must be sorted by [rangeOrder]. Ranges before the first difference
+ * are identical; ranges after the last difference are identical once shifted by [delta]. Null when nothing changed.
+ */
+fun changedWindow(old: List<StyleRange>, new: List<StyleRange>, delta: Int): IntRange? {
+    val min = minOf(old.size, new.size)
+    var i = 0
+    while (i < min && old[i] == new[i]) i++
+    if (i == old.size && i == new.size) return null
+    var j = 0
+    while (j < min - i) {
+        val o = old[old.size - 1 - j]
+        if (o.copy(start = o.start + delta, end = o.end + delta) != new[new.size - 1 - j]) break
+        j++
+    }
+    var a = Int.MAX_VALUE
+    var b = Int.MIN_VALUE
+    for (k in i until old.size - j) old[k].let {
+        a = minOf(a, it.start, it.start + delta)
+        b = maxOf(b, it.end, it.end + delta)
+    }
+    for (k in i until new.size - j) new[k].let {
+        a = minOf(a, it.start)
+        b = maxOf(b, it.end)
+    }
+    if (a > b) return null
+    return a.coerceAtLeast(0) until b
 }
 
 /** Splits a table row into cell texts, honoring escaped pipes and pipes inside backticks. */

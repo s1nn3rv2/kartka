@@ -27,8 +27,8 @@ class StyleBuilderTest {
         assertEquals("jsx", code.data)
         assertTrue(md.substring(code.start, code.end).contains("const a = 1;"))
         assertEquals(listOf("```", "```"), texts(md, Kind.MARKER).filter { it.startsWith("`") })
-        // Leading tabs become indent spans; a tab is 4 columns.
-        assertEquals(listOf(4, 4 + 2, 4 + 2, 4, 8), ranges(md, Kind.INDENT).map { it.level })
+        // The hanging indent is measured from the exact original prefix, including the tab the parser never saw.
+        assertEquals(listOf("\t- ", "\t- ", "\t\t- "), ranges(md, Kind.LIST_ITEM).map { it.data })
     }
 
     // The Logseq dedent must only apply to bullet runs; ordinary indented code stays code.
@@ -42,6 +42,7 @@ class StyleBuilderTest {
         val md = "- [ ] todo\n- [x] done\n"
         assertEquals(listOf(0, 1), ranges(md, Kind.TASK).map { it.level })
         assertEquals(listOf(" done"), texts(md, Kind.TASK_DONE))
+        assertEquals(listOf("- [ ] ", "- [x] "), ranges(md, Kind.LIST_ITEM).map { it.data })
     }
 
     // Matches the shape of "Plan treningowy.md": Polish text, 3 columns, delimiter row collapsed.
@@ -59,6 +60,17 @@ class StyleBuilderTest {
     @Test fun splitRowHonorsEscapesAndCode() {
         assertEquals(listOf("a", "b|c", "`x|y`"), splitTableRow("| a | b\\|c | `x|y` |"))
         assertEquals("Całe ciało (FBW) link", stripInline("Całe ciało (**FBW**) [link](u)"))
+    }
+
+    // Typing must only restyle the edited area: everything outside the window is reused as-is.
+    @Test fun changedWindowCoversOnlyTheEdit() {
+        val before = "# A\n\n**one** two\n\n- three\n- four\n"
+        val after = "# A\n\n**one** twoX\n\n- three\n- four\n"
+        val w = changedWindow(StyleBuilder.build(before).ranges, StyleBuilder.build(after).ranges, 1)
+        assertNull(w) // plain typing inside a paragraph changes no styles
+        val bold = "# A\n\n**one** **two**\n\n- three\n- four\n"
+        val w2 = changedWindow(StyleBuilder.build(before).ranges, StyleBuilder.build(bold).ranges, 4)!!
+        assertEquals("**two**", bold.substring(w2.first, w2.last + 1))
     }
 
     @Test fun foldHeadingStopsAtSameLevel() {

@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Rect
 import android.text.Editable
 import android.text.InputType
-import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextWatcher
 import android.view.Gravity
@@ -16,6 +15,7 @@ import com.s1nn3rv2.kartka.markdown.MarkdownStyles
 import com.s1nn3rv2.kartka.markdown.OutlineOps
 import com.s1nn3rv2.kartka.markdown.StyleBuilder
 import com.s1nn3rv2.kartka.markdown.StyleRange
+import com.s1nn3rv2.kartka.markdown.changedWindow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +32,7 @@ import kotlinx.coroutines.withContext
  */
 @SuppressLint("ViewConstructor")
 class MarkdownEditText(context: Context, colors: EditorColors) : EditText(context) {
-    val style = EditorStyle(resources.displayMetrics.density, colors)
+    val style = EditorStyle(resources.displayMetrics.density, colors) { layout }
 
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var ready = false
@@ -40,10 +40,12 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
     private var styles: MarkdownStyles? = null
     private var version = 0
     private var parsedVersion = -1
+    private var appliedLength = 0
     private var parseJob: Job? = null
     private var activeStart = -1
     private var activeEnd = -1
     private var pendingTask: TaskSpan? = null
+
 
     /** Called after every user edit. */
     var onEdited: (() -> Unit)? = null
@@ -60,7 +62,7 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
         setPadding(pad, style.dp(8f).toInt(), pad, style.dp(24f).toInt())
         // Keep our SpannableStringBuilder instead of copying 75 KB on every setText.
         setEditableFactory(object : Editable.Factory() {
-            override fun newEditable(source: CharSequence) = source as? Editable ?: super.newEditable(source)
+            override fun newEditable(source: CharSequence) = source as? FastEditable ?: FastEditable(source)
         })
         addTextChangedListener(object : TextWatcher {
             // Bump the version before the text changes: selection callbacks fire mid-edit and must see the old parse as stale.
@@ -87,15 +89,17 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
     /** Replaces the content. Parsing happens off the main thread before the text is shown, so it never flashes unstyled. */
     suspend fun load(markdown: String) {
         val parsed = withContext(Dispatchers.Default) { StyleBuilder.build(markdown) }
-        val ssb = SpannableStringBuilder(markdown)
+        val ssb = FastEditable(markdown)
         activeStart = -1
         activeEnd = -1
         for (r in parsed.ranges) createSpan(r, false, style)?.let { ssb.setSpan(it, r.start, r.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        for (level in 1..TAB_STOPS) ssb.setSpan(DocTabStop(level, style), 0, ssb.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
         loading = true
         setText(ssb, BufferType.EDITABLE)
         loading = false
         version++
         parsedVersion = version
+        appliedLength = markdown.length
         styles = parsed
     }
 
@@ -107,17 +111,24 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
             delay(80)
             val v = version
             val snapshot = text.toString()
-            val parsed = withContext(Dispatchers.Default) { StyleBuilder.build(snapshot) }
+            val previous = styles?.ranges.orEmpty()
+            val delta = snapshot.length - appliedLength
+            val (parsed, window) = withContext(Dispatchers.Default) {
+                StyleBuilder.build(snapshot).let { it to changedWindow(previous, it.ranges, delta) }
+            }
             if (v != version) return@launch
             styles = parsed
             parsedVersion = v
+            appliedLength = snapshot.length
+            val oldActive = activeStart to activeEnd
             updateActive()
-            applyDiff()
+            window?.let { applyDiff(it.first, it.last + 1) }
+            applyActiveChange(oldActive)
         }
     }
 
     /** Lines touched by the selection, widened to whole code fences and tables. Empty when not focused. */
-    private fun updateActive(): Boolean {
+    private fun updateActive() {
         val s = styles
         var a = -1
         var b = -1
@@ -132,26 +143,38 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
                 }
             }
         }
-        if (a == activeStart && b == activeEnd) return false
         activeStart = a
         activeEnd = b
-        return true
+    }
+
+    /** Re-applies reveal state where the active region moved: the old region gets hidden again, the new one shown. */
+    private fun applyActiveChange(old: Pair<Int, Int>) {
+        if (old.first == activeStart && old.second == activeEnd) return
+        if (old.first >= 0) applyDiff(old.first, old.second)
+        if (activeStart >= 0) applyDiff(activeStart, activeEnd)
     }
 
     private fun isRevealed(r: StyleRange) = r.kind.revealable && activeStart >= 0 && r.start <= activeEnd && r.end >= activeStart
 
-    /** Makes the spans match the latest parse: removes stale ones, adds missing ones, leaves the rest alone. */
-    private fun applyDiff() {
+    /**
+     * Makes the spans overlapping [from, to) match the latest parse: removes stale ones, adds missing ones, leaves the
+     * rest alone. Overlap follows SpannableStringBuilder.getSpans: touching at an edge does not count.
+     */
+    private fun applyDiff(from: Int, to: Int) {
         val s = styles ?: return
         if (parsedVersion != version) return
         val e = editableText
-        val wanted = HashMap<Pair<StyleRange, Boolean>, StyleRange>(s.ranges.size * 2)
+        val a = from.coerceIn(0, e.length)
+        val b = to.coerceIn(a, e.length)
+        val wanted = HashMap<Pair<StyleRange, Boolean>, StyleRange>()
         for (r in s.ranges) {
+            if (r.start > b) break // ranges are sorted by start
+            if (!overlaps(r.start, r.end, a, b)) continue
             val revealed = isRevealed(r)
             if (revealed && r.kind != Kind.MARKER) continue
             wanted[r to revealed] = r
         }
-        for (span in e.getSpans(0, e.length, MdSpan::class.java)) {
+        for (span in e.getSpans(a, b, MdSpan::class.java)) {
             val key = span.spec.copy(start = e.getSpanStart(span), end = e.getSpanEnd(span)) to span.revealed
             if (wanted.remove(key) == null) e.removeSpan(span)
         }
@@ -160,16 +183,23 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
         }
     }
 
+    private fun overlaps(start: Int, end: Int, a: Int, b: Int) =
+        start <= b && end >= a && (start == end || a == b || (start != b && end != a))
+
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
         if (!ready) return
         unfoldAt(selStart)
-        if (updateActive()) applyDiff()
+        val old = activeStart to activeEnd
+        updateActive()
+        applyActiveChange(old)
     }
 
     override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
         super.onFocusChanged(focused, direction, previouslyFocusedRect)
-        if (updateActive()) applyDiff()
+        val old = activeStart to activeEnd
+        updateActive()
+        applyActiveChange(old)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {

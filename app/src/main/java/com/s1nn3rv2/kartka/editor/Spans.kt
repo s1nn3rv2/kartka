@@ -1,6 +1,7 @@
 package com.s1nn3rv2.kartka.editor
 
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -17,6 +18,7 @@ import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
+import android.text.style.TabStopSpan
 import com.s1nn3rv2.kartka.markdown.Kind
 import com.s1nn3rv2.kartka.markdown.StyleRange
 import com.s1nn3rv2.kartka.markdown.splitTableRow
@@ -37,14 +39,29 @@ data class EditorColors(
 )
 
 /** Shared, mutable drawing context for all spans of one editor. */
-class EditorStyle(val density: Float, var colors: EditorColors) {
+class EditorStyle(val density: Float, var colors: EditorColors, val layout: () -> Layout?) {
     var baseTextSize = 16f * density
     var availableWidth = 0
+    val tabWidth get() = baseTextSize * 1.4f
     fun dp(v: Float) = v * density
+
+    /** Horizontal position of [offset] in the editor's layout, for spans that draw over their own characters. */
+    fun x(offset: Int) = layout()?.getPrimaryHorizontal(offset)
 }
 
+/*
+ * Performance rule: avoid ReplacementSpan for anything common. Android redraws every text block that contains one on
+ * every frame (about 70 ms per keystroke in a 75 KB note instead of 2 ms). Hidden text is shrunk instead, and bullets
+ * and checkboxes are drawn behind their own invisible characters.
+ */
+private const val BULLET_SCALE = 1.8f
+private const val TASK_SCALE = 1.3f
+
+/** Spans whose moving with the text needs no re-layout; [FastEditable] skips their shift notifications while editing. */
+interface PassiveSpan
+
 /** A span created from a parse result. The editor diffs these against each new parse. */
-interface MdSpan {
+interface MdSpan : PassiveSpan {
     val spec: StyleRange
     val revealed: Boolean
 }
@@ -68,30 +85,51 @@ fun createSpan(r: StyleRange, revealed: Boolean, style: EditorStyle): MdSpan? = 
     Kind.ORDERED_MARKER -> OrderedMarkerSpan(r, style)
     Kind.TASK -> TaskSpan(r, style)
     Kind.TASK_DONE -> TaskDoneSpan(r, style)
-    Kind.INDENT -> IndentSpan(r, style)
     Kind.LIST_ITEM -> ListItemSpan(r, style)
 }
 
 /** Hanging indent: wrapped lines of a list item line up with the text after the bullet. */
 class ListItemSpan(override val spec: StyleRange, private val style: EditorStyle) : LeadingMarginSpan, MdSpan {
     override val revealed get() = false
+    private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private var cachedSize = -1f
+    private var margin = 0
+
+    /** Width of the prefix (tabs, bullet, checkbox) as the spans above draw it. */
     override fun getLeadingMargin(first: Boolean): Int {
         if (first) return 0
-        val shape = spec.data.orEmpty()
-        val marker = when {
-            shape == "t" -> 0.6f + 0.28f + 1.2f
-            shape.startsWith("o") -> (shape.drop(1).toIntOrNull() ?: 2) * 0.55f
-            else -> 0.6f
+        if (cachedSize != style.baseTextSize) {
+            cachedSize = style.baseTextSize
+            paint.textSize = style.baseTextSize
+            val prefix = spec.data.orEmpty()
+            val markerAt = prefix.indexOfFirst { it != ' ' && it != '\t' }
+            val taskAt = prefix.indexOf('[', markerAt + 1)
+            var x = 0f
+            prefix.forEachIndexed { i, c ->
+                x = when {
+                    c == '\t' -> (kotlin.math.floor(x / style.tabWidth) + 1) * style.tabWidth
+                    i == markerAt && c in "-*+" -> x + paint.measureText(c.toString()) * BULLET_SCALE
+                    taskAt >= 0 && i in taskAt..taskAt + 2 -> x + paint.measureText(c.toString()) * TASK_SCALE
+                    else -> x + paint.measureText(c.toString())
+                }
+            }
+            margin = x.toInt()
         }
-        return (style.baseTextSize * (spec.level * 0.35f + marker + 0.28f)).toInt()
+        return margin
     }
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
 }
 
-class HiddenSpan(override val spec: StyleRange) : ReplacementSpan(), MdSpan {
+/** Shrinks text to nothing: practically zero width, no height, invisible. */
+private fun hide(tp: TextPaint) {
+    tp.textSize = 0.01f
+    tp.color = Color.TRANSPARENT
+}
+
+class HiddenSpan(override val spec: StyleRange) : MetricAffectingSpan(), MdSpan {
     override val revealed get() = false
-    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?) = 0
-    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) = Unit
+    override fun updateMeasureState(tp: TextPaint) = hide(tp)
+    override fun updateDrawState(tp: TextPaint) = hide(tp)
 }
 
 class DimSpan(override val spec: StyleRange, private val style: EditorStyle) : CharacterStyle(), MdSpan {
@@ -191,17 +229,29 @@ class QuoteSpan(override val spec: StyleRange, private val style: EditorStyle) :
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
 }
 
-class BulletSpan(override val spec: StyleRange, private val style: EditorStyle) : ReplacementSpan(), MdSpan {
+/** The `-` stays (widened, invisible) and a dot is drawn where it sits. */
+class BulletSpan(override val spec: StyleRange, private val style: EditorStyle) : MetricAffectingSpan(), LineBackgroundSpan, MdSpan {
     override val revealed get() = false
-    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?) =
-        (style.baseTextSize * 0.6f).toInt()
-    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+    override fun updateMeasureState(tp: TextPaint) { tp.textScaleX = BULLET_SCALE }
+    override fun updateDrawState(tp: TextPaint) {
+        tp.textScaleX = BULLET_SCALE
+        tp.color = Color.TRANSPARENT
+    }
+    override fun drawBackground(
+        canvas: Canvas, paint: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int,
+        text: CharSequence, start: Int, end: Int, lineNumber: Int,
+    ) {
+        val spanned = text as? Spanned ?: return
+        val s = spanned.getSpanStart(this)
+        if (s < start || s >= end) return
+        val x0 = style.x(s) ?: return
+        val x1 = style.x(spanned.getSpanEnd(this)) ?: return
         val old = paint.color
         val oldStyle = paint.style
         paint.color = style.colors.dim
         val r = style.baseTextSize * 0.15f
-        val cx = x + style.baseTextSize * 0.3f
-        val cy = y - style.baseTextSize * 0.3f
+        val cx = (x0 + x1) / 2
+        val cy = baseline - style.baseTextSize * 0.3f
         if (spec.level % 2 == 1) {
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = style.dp(1.5f)
@@ -219,17 +269,29 @@ class OrderedMarkerSpan(override val spec: StyleRange, private val style: Editor
     override fun updateDrawState(tp: TextPaint) { tp.color = style.colors.primary }
 }
 
-/** Draws `[ ]` / `[x]` as a checkbox. The editor toggles it on tap. */
-class TaskSpan(override val spec: StyleRange, private val style: EditorStyle) : ReplacementSpan(), MdSpan {
+/** Draws `[ ]` / `[x]` as a checkbox behind its own invisible characters. The editor toggles it on tap. */
+class TaskSpan(override val spec: StyleRange, private val style: EditorStyle) : MetricAffectingSpan(), LineBackgroundSpan, MdSpan {
     override val revealed get() = false
     private val rect = RectF()
     private val path = Path()
-    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?) =
-        (style.baseTextSize * 1.2f).toInt()
-    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+    override fun updateMeasureState(tp: TextPaint) { tp.textScaleX = TASK_SCALE }
+    override fun updateDrawState(tp: TextPaint) {
+        tp.textScaleX = TASK_SCALE
+        tp.color = Color.TRANSPARENT
+    }
+    override fun drawBackground(
+        canvas: Canvas, paint: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int,
+        text: CharSequence, start: Int, end: Int, lineNumber: Int,
+    ) {
+        val spanned = text as? Spanned ?: return
+        val st = spanned.getSpanStart(this)
+        if (st < start || st >= end) return
+        val x0 = style.x(st) ?: return
+        val x1 = style.x(spanned.getSpanEnd(this)) ?: return
         val s = style.baseTextSize * 0.9f
-        val cy = y - style.baseTextSize * 0.33f
-        rect.set(x + style.baseTextSize * 0.05f, cy - s / 2, x + style.baseTextSize * 0.05f + s, cy + s / 2)
+        val cx = (x0 + x1) / 2
+        val cy = baseline - style.baseTextSize * 0.33f
+        rect.set(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2)
         val old = paint.color
         val oldStyle = paint.style
         val radius = s * 0.25f
@@ -266,13 +328,15 @@ class TaskDoneSpan(override val spec: StyleRange, private val style: EditorStyle
     }
 }
 
-/** Leading whitespace drawn at a fixed width per column, so tabs nest evenly in any font. */
-class IndentSpan(override val spec: StyleRange, private val style: EditorStyle) : ReplacementSpan(), MdSpan {
-    override val revealed get() = false
-    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?) =
-        (spec.level * style.baseTextSize * 0.35f).toInt()
-    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) = Unit
+/**
+ * One document-wide tab stop, so nested tabs line up at a readable fixed width in any font (Android's default stops
+ * are 20 px apart). The editor adds [TAB_STOPS] of these over the whole text instead of one per indented line.
+ */
+class DocTabStop(private val level: Int, private val style: EditorStyle) : TabStopSpan, PassiveSpan {
+    override fun getTabStop() = (level * style.tabWidth).toInt()
 }
+
+const val TAB_STOPS = 12
 
 class HrSpan(override val spec: StyleRange, private val style: EditorStyle) : ReplacementSpan(), MdSpan {
     override val revealed get() = false
@@ -287,10 +351,10 @@ class HrSpan(override val spec: StyleRange, private val style: EditorStyle) : Re
 }
 
 /** Zero width and zero height: hides a whole line (the `|---|` row of a table). */
-class CollapsedLineSpan(override val spec: StyleRange) : ReplacementSpan(), LineHeightSpan, MdSpan {
+class CollapsedLineSpan(override val spec: StyleRange) : MetricAffectingSpan(), LineHeightSpan, MdSpan {
     override val revealed get() = false
-    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?) = 0
-    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) = Unit
+    override fun updateMeasureState(tp: TextPaint) = hide(tp)
+    override fun updateDrawState(tp: TextPaint) = hide(tp)
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) = zeroHeight(fm)
 }
 
@@ -395,24 +459,26 @@ class Fold {
     val spans = ArrayList<Any>()
 }
 
-class FoldLineSpan(val fold: Fold) : LineHeightSpan {
+class FoldLineSpan(val fold: Fold) : LineHeightSpan, PassiveSpan {
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) = zeroHeight(fm)
 }
 
-class FoldGlyphSpan(val fold: Fold) : ReplacementSpan() {
-    override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?) = 0
-    override fun draw(canvas: Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) = Unit
+class FoldGlyphSpan(val fold: Fold) : MetricAffectingSpan(), PassiveSpan {
+    override fun updateMeasureState(tp: TextPaint) = hide(tp)
+    override fun updateDrawState(tp: TextPaint) = hide(tp)
 }
 
-/** Marks a folded header line with a small pill at the right edge. */
-class FoldHeaderSpan(val fold: Fold, private val style: EditorStyle) : LineBackgroundSpan {
+/** Marks a folded header line with a small pill right after its text. */
+class FoldHeaderSpan(val fold: Fold, private val style: EditorStyle) : LineBackgroundSpan, PassiveSpan {
     private val rect = RectF()
     override fun drawBackground(
         canvas: Canvas, paint: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int,
         text: CharSequence, start: Int, end: Int, lineNumber: Int,
     ) {
         val spanned = text as? Spanned ?: return
-        if (start != spanned.getSpanStart(this)) return
+        val spanEnd = spanned.getSpanEnd(this)
+        if (spanEnd < start || spanEnd > end) return // only on the header's last line
+        val x = (style.x(spanEnd) ?: return) + style.dp(8f)
         val old = paint.color
         val oldSize = paint.textSize
         paint.textSize = style.baseTextSize * 0.8f
@@ -420,7 +486,7 @@ class FoldHeaderSpan(val fold: Fold, private val style: EditorStyle) : LineBackg
         val w = paint.measureText(label) + style.dp(16f)
         val h = style.baseTextSize * 1.1f
         val cy = baseline - style.baseTextSize * 0.33f
-        rect.set(right - w, cy - h / 2, right.toFloat(), cy + h / 2)
+        rect.set(x, cy - h / 2, x + w, cy + h / 2)
         paint.color = style.colors.tableHeaderBackground
         canvas.drawRoundRect(rect, h / 2, h / 2, paint)
         paint.color = style.colors.text
