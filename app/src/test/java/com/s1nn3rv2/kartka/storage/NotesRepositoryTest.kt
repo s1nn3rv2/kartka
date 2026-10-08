@@ -86,4 +86,27 @@ class NotesRepositoryTest {
         assertTrue(second != path && File(tmp.root, path).readText() == "img")
         assertTrue(NotesRepository.ATTACHMENTS !in repo().scan().second)
     }
+
+    // A note in another encoding is never written: saving would replace its letters for good.
+    @Test fun nonUtf8NotesAreReadOnly() {
+        File(tmp.root, "old.md").writeBytes("za\u017c\u00f3\u0142\u0107".toByteArray(charset("windows-1250")))
+        val note = repo().read("old.md")
+        assertTrue(note.format.readOnly)
+        assertTrue(runCatching { repo().write("old.md", note.text, note.format) }.isFailure)
+        assertFalse(repo().read("old.md").text.isEmpty())
+        assertFalse(repo().also { it.write("new.md", "zażółć", TextFormat()) }.read("new.md").format.readOnly)
+    }
+
+    // Changing only the capitals renames the file itself instead of making "Name 2.md".
+    @Test fun capitalOnlyRename() {
+        File(tmp.root, "shopping.md").writeText("x")
+        assertEquals("Shopping.md", repo().rename("shopping.md", "Shopping"))
+        assertEquals(listOf("Shopping.md"), tmp.root.list()!!.filter { it.endsWith(".md") })
+    }
+
+    // Names stay within the file system's 255-byte limit, even with two-byte Polish letters.
+    @Test fun longTitlesAreShortened() {
+        val name = PathRules.fileName("ż".repeat(300))!!
+        assertTrue(name.toByteArray().size <= 255)
+    }
 }

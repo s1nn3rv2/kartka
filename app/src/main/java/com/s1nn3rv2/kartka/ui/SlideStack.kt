@@ -120,8 +120,9 @@ fun <T : Any> SlideStack(state: SlideStackState<T>, modifier: Modifier = Modifie
         state.slideOut(leaving) { state.leave.animateTo(1f, tween(220, easing = Emphasized)) }
     }
 
-    // Saved state (scroll position, text fields) of screens that were popped is dropped.
-    val keys = entries.map { it.toString() }
+    // Saved state (scroll position, text fields) of screens that were popped is dropped. Keys include the position,
+    // so the same screen twice in the stack (a note linking to itself and back) never shares a key.
+    val keys = entries.mapIndexed { i, e -> "$i:$e" }
     var previous by remember { mutableStateOf(keys) }
     LaunchedEffect(keys) {
         (previous - keys.toSet()).forEach(holder::removeState)
@@ -130,12 +131,12 @@ fun <T : Any> SlideStack(state: SlideStackState<T>, modifier: Modifier = Modifie
 
     val scrim = MaterialTheme.colorScheme.scrim
     Box(modifier.fillMaxSize()) {
-        val top = entries.last()
         // The screen underneath only exists while something is moving, so a resting stack composes one screen.
-        val below = if (state.moving) entries.getOrNull(entries.lastIndex - 1) else null
-        for (entry in listOfNotNull(below, top)) {
-            key(entry) {
-                val isTop = entry == top
+        val shown = if (state.moving && entries.size > 1) listOf(entries.lastIndex - 1, entries.lastIndex) else listOf(entries.lastIndex)
+        for (index in shown) {
+            val entry = entries[index]
+            key(keys[index]) {
+                val isTop = index == entries.lastIndex
                 Box(
                     Modifier.fillMaxSize().graphicsLayer {
                         // Read in the layer block (draw phase), so sliding never recomposes the screens.
@@ -146,7 +147,7 @@ fun <T : Any> SlideStack(state: SlideStackState<T>, modifier: Modifier = Modifie
                         if (!isTop) drawRect(scrim.copy(alpha = 0.15f * (1f - state.leave.value)))
                     },
                 ) {
-                    holder.SaveableStateProvider(entry.toString()) { content(entry) }
+                    holder.SaveableStateProvider(keys[index]) { content(entry) }
                 }
             }
         }

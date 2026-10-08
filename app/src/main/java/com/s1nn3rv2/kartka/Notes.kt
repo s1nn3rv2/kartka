@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import android.os.FileObserver
+import android.util.Log
 import com.s1nn3rv2.kartka.index.IndexedNote
 import com.s1nn3rv2.kartka.index.SearchResult
 import com.s1nn3rv2.kartka.index.search
@@ -101,7 +102,8 @@ class Notes(context: Context) {
                 .map { m -> async(reader) { runCatching { index[m.path] = IndexedNote(m, repo.read(m.path).text) } } }
                 .awaitAll()
             _state.value = _state.value.copy(indexVersion = _state.value.indexVersion + 1)
-            watch(repo, folders)
+            // Re-creating the watches is costly with many folders; only needed when folders were added or removed.
+            if (folders != watchedFolders) watch(repo, folders)
         }
     }
 
@@ -114,9 +116,7 @@ class Notes(context: Context) {
     }
 
     /** Creates an empty note (named after the current date and time) in [folder], or in the scratch folder. */
-    suspend fun create(folder: String, scratch: Boolean = false): String? = withContext(Dispatchers.IO) {
-        repository?.create(if (scratch) NotesRepository.SCRATCH else folder, "")?.also { refreshSoon() }
-    }
+    suspend fun create(folder: String, scratch: Boolean = false): String? = io { it.create(if (scratch) NotesRepository.SCRATCH else folder, "") }
 
     /** A note read and parsed ahead of opening it, so its screen has content from the very first frame. */
     class Prepared(val path: String, val loaded: LoadedNote, val blocks: List<MdBlock>)
@@ -170,8 +170,11 @@ class Notes(context: Context) {
     /** Moves a note into [folder] (a scratch note "kept" moves out of the scratch folder); returns the new path. */
     suspend fun move(path: String, folder: String): String? = io { it.move(path, folder) }?.also { pathChanged(path, it) }
 
+    /** Runs a file operation off the main thread; a failure (storage full, file gone) gives null instead of a crash. */
     private suspend fun <T> io(block: (NotesRepository) -> T): T? =
-        withContext(Dispatchers.IO) { repository?.let(block) }.also { refreshSoon() }
+        withContext(Dispatchers.IO) {
+            repository?.let { repo -> runCatching { block(repo) }.onFailure { Log.w("Kartka", "File operation failed", it) }.getOrNull() }
+        }.also { refreshSoon() }
 
     /** Copies a picked photo into the attachments folder; returns its path as seen from the note at [notePath]. */
     suspend fun attach(uri: Uri, notePath: String): String? = io { repo ->
@@ -181,8 +184,12 @@ class Notes(context: Context) {
     }
 
     /** The file an image link [url] in the note at [notePath] points to (relative to the note's folder, like PC editors). */
-    fun imageFile(notePath: String, url: String): File? =
-        repository?.let { File(it.file(notePath).parentFile, Uri.decode(url)).normalize() }
+    fun imageFile(notePath: String, url: String): File? {
+        val repo = repository ?: return null
+        val relative = File(repo.file(notePath).parentFile, Uri.decode(url)).normalize()
+        // A note moved to another folder depth (or a scratch note kept) still points at its old relative place.
+        return relative.takeIf { it.exists() } ?: File(repo.root, Uri.decode(url).replace(Regex("^(\\.\\./)+"), "")).normalize()
+    }
 
     private val foldPrefs = context.getSharedPreferences("folds", Context.MODE_PRIVATE)
 
@@ -204,9 +211,21 @@ class Notes(context: Context) {
         pinPrefs.edit().putStringSet("pins", next).apply()
     }
 
+    // Renames during this run, old path to new: a screen opened under the old name finds the file again.
+    private val moved = ConcurrentHashMap<String, String>()
+
+    /** Where the note opened as [path] is now, following renames and moves made in the app. */
+    fun currentPath(path: String): String {
+        var p = path
+        repeat(20) { p = moved[p] ?: return p }
+        return p
+    }
+
     /** A note was renamed or moved: its pin and remembered folds follow it. */
     fun pathChanged(old: String, new: String) {
         if (old == new) return
+        moved[old] = new
+        moved.remove(new)
         if (old in _pins.value) {
             setPinned(listOf(old), false)
             setPinned(listOf(new), true)
@@ -232,7 +251,10 @@ class Notes(context: Context) {
     /** Notes that are indexed, for things like backlinks later. */
     fun indexed(path: String): IndexedNote? = index[path]
 
+    private var watchedFolders: List<String>? = null
+
     private fun watch(repo: NotesRepository, folders: List<String>) {
+        watchedFolders = folders
         watcher?.stopWatching()
         val dirs = folders.map { repo.file(it) }
         val mask = FileObserver.CREATE or FileObserver.DELETE or FileObserver.CLOSE_WRITE or

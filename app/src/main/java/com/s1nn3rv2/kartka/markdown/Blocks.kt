@@ -295,16 +295,29 @@ fun foldEnd(blocks: List<MdBlock>, i: Int): Int {
 
 fun canFold(blocks: List<MdBlock>, i: Int) = foldEnd(blocks, i) > i + 1
 
-/** How a folded block is remembered between visits: its nesting and text, so edits elsewhere don't move the fold. */
-fun foldKey(b: MdBlock): String? = when (b) {
-    is MdHeading -> "h${b.level}|${b.text.text}"
-    is MdListItem -> "${b.indent}|${b.text.text}"
-    else -> null
+/**
+ * How each foldable block is remembered between visits: its nesting, its text, and which occurrence of that text it
+ * is, so edits elsewhere don't move a fold and two "- Notes" bullets fold separately. Null for blocks that don't fold.
+ */
+fun foldKeys(blocks: List<MdBlock>): List<String?> {
+    val seen = HashMap<String, Int>()
+    return blocks.map { b ->
+        val base = when (b) {
+            is MdHeading -> "h${b.level}|${b.text.text}"
+            is MdListItem -> "${b.indent}|${b.text.text}"
+            else -> return@map null
+        }
+        val n = seen.merge(base, 1, Int::plus)!!
+        "$base|$n"
+    }
 }
 
-/** Indices of the blocks matching remembered [keys] (see [foldKey]). */
-fun foldsFromKeys(blocks: List<MdBlock>, keys: Set<String>): Set<Int> =
-    if (keys.isEmpty()) emptySet() else blocks.indices.filterTo(HashSet()) { foldKey(blocks[it]) in keys }
+/** Indices of the blocks matching remembered [keys] (see [foldKeys]). */
+fun foldsFromKeys(blocks: List<MdBlock>, keys: Set<String>): Set<Int> {
+    if (keys.isEmpty()) return emptySet()
+    val all = foldKeys(blocks)
+    return blocks.indices.filterTo(HashSet()) { all[it] in keys }
+}
 
 /** Indices of the blocks to show when the blocks in [folded] have their children hidden. */
 fun visibleBlocks(blocks: List<MdBlock>, folded: Set<Int>): List<Int> {

@@ -176,6 +176,8 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
     var opening by remember { mutableStateOf(false) }
     fun openNote(path: String, isNew: Boolean = false) {
         if (opening) return // a quick double tap must not open the note twice
+        // Already open on top (a link to itself, or text shared into the open note): it reloads by itself.
+        if ((stack.entries.last() as? Route.Note)?.path?.let(notes::currentPath) == notes.currentPath(path)) return
         opening = true
         scope.launch {
             notes.prepare(path)

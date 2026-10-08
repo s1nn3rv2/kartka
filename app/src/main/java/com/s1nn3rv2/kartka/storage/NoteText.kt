@@ -4,7 +4,8 @@ package com.s1nn3rv2.kartka.storage
  * How a note's bytes looked on disk, so saving writes them back the same way: the app edits with plain "\n" line
  * breaks, and a file that used a byte-order mark or Windows "\r\n" line breaks keeps them.
  */
-data class TextFormat(val bom: Boolean = false, val crlf: Boolean = false)
+/** How a note was stored. [readOnly]: the file isn't valid UTF-8; saving would replace its letters, so it's never written. */
+data class TextFormat(val bom: Boolean = false, val crlf: Boolean = false, val readOnly: Boolean = false)
 
 object NoteText {
     private const val BOM = '﻿'
@@ -41,7 +42,10 @@ object PathRules {
     fun relative(folder: String, target: String) = "../".repeat(if (folder.isEmpty()) 0 else folder.count { it == '/' } + 1) + target
 
     fun fileName(title: String): String? {
-        val clean = illegal.replace(title, "").trim().trimEnd('.')
+        // File names are limited to 255 bytes; Polish letters take two bytes each.
+        var clean = illegal.replace(title, "").trim()
+        while (clean.toByteArray().size > 200) clean = clean.dropLast(1)
+        clean = clean.trim().trimEnd('.')
         return if (clean.isEmpty() || clean.startsWith(".")) null else "$clean.md"
     }
 

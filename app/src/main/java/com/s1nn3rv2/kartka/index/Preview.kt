@@ -44,8 +44,6 @@ fun age(modified: Long, today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneI
     }
 }
 
-// Accent-free and case-free first (Łódź sorts with L, Żaba with Z on any phone language), then exact title.
-private val byName: Comparator<NoteMeta> = compareBy({ normalize(it.title) }, { it.title })
 
 /**
  * Pinned notes first, then the rest: grouped by age when sorted by last edit (notes arrive newest first), or in one
@@ -53,7 +51,11 @@ private val byName: Comparator<NoteMeta> = compareBy({ normalize(it.title) }, { 
  */
 fun groupNotes(all: List<NoteMeta>, pins: Set<String>, sort: SortOrder, restLabel: String?): List<Pair<String, List<NoteMeta>>> {
     val (pinned, rest) = all.partition { it.path in pins }
-    fun ordered(items: List<NoteMeta>) = if (sort == SortOrder.NAME) items.sortedWith(byName) else items
+    // By name: accent-free and case-free first (Łódź with L, Żaba with Z on any phone language), then exact title.
+    // Each title's key is computed once, not on every comparison.
+    fun ordered(items: List<NoteMeta>) =
+        if (sort == SortOrder.NAME) items.map { normalize(it.title) to it }.sortedWith(compareBy({ it.first }, { it.second.title })).map { it.second }
+        else items
     return buildList {
         if (pinned.isNotEmpty()) add("Pinned" to ordered(pinned))
         when {

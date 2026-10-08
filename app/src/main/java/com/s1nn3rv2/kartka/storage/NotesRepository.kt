@@ -1,6 +1,9 @@
 package com.s1nn3rv2.kartka.storage
 
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
@@ -42,8 +45,14 @@ class NotesRepository(val root: File) {
 
     fun read(path: String): LoadedNote {
         val f = file(path)
-        val (text, format) = NoteText.decode(f.readText())
-        return LoadedNote(text, format, f.lastModified(), f.length())
+        val bytes = f.readBytes()
+        // Strict UTF-8: a note in another encoding is shown as well as possible but never written back.
+        val strict = runCatching {
+            Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes)).toString()
+        }.getOrNull()
+        val (text, format) = NoteText.decode(strict ?: String(bytes, Charsets.UTF_8))
+        return LoadedNote(text, format.copy(readOnly = strict == null), f.lastModified(), f.length())
     }
 
     /**
@@ -51,10 +60,15 @@ class NotesRepository(val root: File) {
      * a sync mid-write never leaves a half-written note.
      */
     fun write(path: String, text: String, format: TextFormat): NoteMeta {
+        check(!format.readOnly) { "$path is not UTF-8 and is never written" }
         val f = file(path)
         f.parentFile?.mkdirs()
         val tmp = File(f.parentFile, ".${f.name}.tmp")
-        tmp.writeText(NoteText.encode(text, format))
+        // Flushed to the disk before the move, so a power cut can't leave an empty or partial note behind.
+        FileOutputStream(tmp).use { out ->
+            out.write(NoteText.encode(text, format).toByteArray())
+            out.fd.sync()
+        }
         Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         return NoteMeta(path, f.lastModified(), f.length())
     }
@@ -83,8 +97,11 @@ class NotesRepository(val root: File) {
     /** Renames the note in place; returns the new path (unchanged when the title is unusable or the same). */
     fun rename(path: String, title: String): String {
         val name = PathRules.fileName(title) ?: return path
-        if (name == path.substringAfterLast('/')) return path
+        val current = path.substringAfterLast('/')
+        if (name == current) return path
         val folder = path.substringBeforeLast('/', "")
+        // Phone storage ignores letter case, so "shopping" to "Shopping" is the same file: rename through a temp name.
+        if (name.equals(current, ignoreCase = true)) return moveTo(moveTo(path, join(folder, ".$name.renaming")), join(folder, name))
         val target = PathRules.unique(name) { file(join(folder, it)).exists() }
         return moveTo(path, join(folder, target))
     }

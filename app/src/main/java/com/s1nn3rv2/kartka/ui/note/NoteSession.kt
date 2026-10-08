@@ -11,6 +11,7 @@ import com.s1nn3rv2.kartka.storage.TextFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -32,7 +33,14 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
     /** The exact String instance the editor last showed; when it differs from [text], the editor must reload. */
     var editorText: String? = null
 
-    private var format = TextFormat()
+    private var format by mutableStateOf(TextFormat())
+
+    /** The file isn't valid UTF-8: shown, but never saved (saving would replace its letters). */
+    val readOnly get() = format.readOnly
+
+    /** The last save failed (for example storage full); the text stays here and the next save tries again. */
+    var saveFailed by mutableStateOf(false)
+        private set
     private var savedText: String? = null
     private var diskModified = 0L
     private var saveJob: Job? = null
@@ -60,9 +68,11 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
 
     val hasUnsavedChanges get() = pendingFromEditor != null || text != savedText
 
-    suspend fun load() {
-        val repo = notes.repository ?: return
-        apply(withContext(Dispatchers.IO) { repo.read(path) })
+    /** False when the file can't be read (deleted on another device, or renamed before the app restarted). */
+    suspend fun load(): Boolean {
+        val repo = notes.repository ?: return false
+        apply(runCatching { withContext(Dispatchers.IO) { repo.read(path) } }.getOrNull() ?: return false)
+        return true
     }
 
     /** A change made outside the editor (a checkbox tap): shown and saved right away. */
@@ -129,26 +139,37 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
             current().also { editorText = it; text = it }
         }
         val t = text ?: return
-        if (t == savedText) return
+        if (t == savedText || format.readOnly) return
         val repo = notes.repository ?: return
-        if (conflict || withContext(Dispatchers.IO) { diskChanged(repo) }) {
-            conflict = true
-            if (final) keepCopy(repo, t)
-            return
+        // Once a write starts it runs to the end, bookkeeping included: a keystroke cancelling the autosave
+        // halfway would otherwise leave the file newer than this session knows, which looks like a conflict.
+        withContext(NonCancellable) {
+            if (conflict || withContext(Dispatchers.IO) { diskChanged(repo) }) {
+                conflict = true
+                if (final && t != copiedText) keepCopy(repo, t)
+                return@withContext
+            }
+            val meta = runCatching { withContext(Dispatchers.IO) { repo.write(path, t, format) } }.getOrNull()
+            saveFailed = meta == null
+            if (meta == null) return@withContext
+            savedText = t
+            diskModified = meta.modified
+            notes.refreshSoon()
         }
-        val meta = withContext(Dispatchers.IO) { repo.write(path, t, format) }
-        savedText = t
-        diskModified = meta.modified
-        notes.refreshSoon()
     }
 
-    /** Leaving with a conflict still open: the edits go to "<title> (my edits)" next to the note, so nothing is lost. */
+    /** The text last copied to a "(my edits)" note, so leaving or pausing again doesn't copy it twice. */
+    private var copiedText: String? = null
+
+    /** A conflict still open when leaving or pausing: the edits go to "<title> (my edits)" next to the note. */
     private suspend fun keepCopy(repo: NotesRepository, t: String) {
-        withContext(Dispatchers.IO) {
-            val copy = repo.create(path.substringBeforeLast('/', ""), PathRules.title(path.substringAfterLast('/')) + " (my edits)")
-            repo.write(copy, t, format)
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val copy = repo.create(path.substringBeforeLast('/', ""), PathRules.title(path.substringAfterLast('/')) + " (my edits)")
+                repo.write(copy, t, format)
+            }
+            copiedText = t
         }
-        savedText = t
         notes.refreshSoon()
     }
 
@@ -160,7 +181,7 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
             fileLock.withLock {
                 saveLocked()
                 val old = path
-                path = withContext(Dispatchers.IO) { repo.rename(path, title) }
+                path = runCatching { withContext(Dispatchers.IO) { repo.rename(path, title) } }.getOrDefault(path)
                 notes.pathChanged(old, path)
             }
             notes.refreshSoon()
@@ -174,7 +195,7 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
             fileLock.withLock {
                 saveLocked()
                 val old = path
-                path = withContext(Dispatchers.IO) { repo.move(path, folder) }
+                path = runCatching { withContext(Dispatchers.IO) { repo.move(path, folder) } }.getOrDefault(path)
                 notes.pathChanged(old, path)
             }
             notes.refreshSoon()
@@ -212,7 +233,13 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         val repo = notes.repository ?: return
         fileLock.withLock {
             if (closed || !withContext(Dispatchers.IO) { diskChanged(repo) }) return
-            if (hasUnsavedChanges) conflict = true else apply(withContext(Dispatchers.IO) { repo.read(path) })
+            if (hasUnsavedChanges) {
+                conflict = true
+                return
+            }
+            val loaded = runCatching { withContext(Dispatchers.IO) { repo.read(path) } }.getOrNull() ?: return
+            // Typing may have started while the file was being read; then it's a conflict, not a reload.
+            if (hasUnsavedChanges) conflict = true else apply(loaded)
         }
     }
 }

@@ -107,9 +107,16 @@ class BlocksTest {
     // A remembered fold follows its block's text, not its position: adding lines above must not fold something else.
     @Test fun foldsFollowTheirBlock() {
         val before = BlockBuilder.build("# A\n- one\n\t- child\n- two\n\t- child\n")
-        val keys = setOfNotNull(foldKey(before[3]))
+        val keys = setOfNotNull(foldKeys(before)[3])
         val after = BlockBuilder.build("# A\n- new\n- one\n\t- child\n- two\n\t- child\n")
         val folded = foldsFromKeys(after, keys)
         assertEquals(listOf("two"), folded.map { (after[it] as MdListItem).text.text })
+    }
+
+    // Two bullets with the same text fold separately.
+    @Test fun sameTextFoldsSeparately() {
+        val blocks = BlockBuilder.build("- Notes\n\t- a\n- Notes\n\t- b\n")
+        val second = blocks.indexOfLast { it is MdListItem && it.text.text == "Notes" }
+        assertEquals(setOf(second), foldsFromKeys(blocks, setOfNotNull(foldKeys(blocks)[second])))
     }
 }

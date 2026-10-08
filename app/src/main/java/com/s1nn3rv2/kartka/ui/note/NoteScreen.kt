@@ -109,7 +109,7 @@ import com.s1nn3rv2.kartka.markdown.MdFootnote
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
 import com.s1nn3rv2.kartka.markdown.foldEnd
-import com.s1nn3rv2.kartka.markdown.foldKey
+import com.s1nn3rv2.kartka.markdown.foldKeys
 import com.s1nn3rv2.kartka.markdown.foldsFromKeys
 import com.s1nn3rv2.kartka.markdown.visibleBlocks
 import com.s1nn3rv2.kartka.storage.NoteMeta
@@ -123,7 +123,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun NoteScreen(
     app: KartkaApp,
-    path: String,
+    routePath: String,
     isNew: Boolean,
     onBack: () -> Unit,
     onTrashed: (trashPath: String) -> Unit,
@@ -131,12 +131,14 @@ fun NoteScreen(
     onOpenWikiLink: (target: String, from: String) -> Unit,
     onOpenTag: (tag: String) -> Unit,
 ) {
+    // A note renamed while it was open (screen rebuilt later, e.g. on coming back to it) is found under its new name.
+    val path = remember(routePath) { app.notes.currentPath(routePath) }
     // Opened notes arrive already read and parsed, so the first frame shows the content (no blank flash).
     val prepared = remember(path) { app.notes.takePrepared(path) }
     val session = remember(path) { NoteSession(app.notes, path, app.scope, prepared?.loaded) }
     val textScale = app.settings.textSize.state.collectAsStateWithLifecycle().value.scale
     val scope = rememberCoroutineScope()
-    LaunchedEffect(session) { if (prepared == null) session.load() }
+    LaunchedEffect(session) { if (prepared == null && !session.load()) onBack() }
     // Leaving the note (back, predictive back, process going away) saves whatever is pending.
     DisposableEffect(session) {
         onDispose {
@@ -151,7 +153,8 @@ fun NoteScreen(
     }
     LifecycleResumeEffect(session) {
         scope.launch { session.reloadIfChangedOnDisk() }
-        onPauseOrDispose { session.saveNow() }
+        // Final: with a conflict open, the edits are also copied to "(my edits)" in case Android ends the app meanwhile.
+        onPauseOrDispose { session.saveNow(final = true) }
     }
 
     val text = session.text
@@ -164,7 +167,8 @@ fun NoteScreen(
     var foldKeys by remember(path) { mutableStateOf(app.notes.folds(path)) }
     val folded = remember(blocks, foldKeys) { blocks?.let { b -> foldKeys?.let { foldsFromKeys(b, it) } ?: initialFolds(b) } }
     fun setFolded(b: List<MdBlock>, indices: Set<Int>) {
-        val keys = indices.mapNotNullTo(HashSet()) { foldKey(b[it]) }
+        val all = foldKeys(b)
+        val keys = indices.mapNotNullTo(HashSet()) { all[it] }
         foldKeys = keys
         app.notes.setFolds(session.path, keys)
     }
@@ -386,7 +390,7 @@ fun NoteScreen(
                                 editing = true
                             }
                         },
-                        enabled = text != null,
+                        enabled = text != null && (editing || !session.readOnly),
                         shapes = IconButtonDefaults.shapes(),
                     ) {
                         if (editing) Icon(Icons.Filled.Check, contentDescription = "Done") else Icon(Icons.Filled.Edit, contentDescription = "Edit")
@@ -397,6 +401,10 @@ fun NoteScreen(
     ) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             if (session.conflict) ConflictBanner(session::useTheirs, session::keepMine)
+            when {
+                session.readOnly -> Notice("This file isn't UTF-8 text. It's shown read-only here, so saving can't damage its letters.")
+                session.saveFailed -> Notice("Couldn't save this note (is the storage full?). Your text is kept and saved with the next change.")
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (prepareEditor) {
                     val colors = editorColors()
@@ -453,8 +461,16 @@ fun NoteScreen(
                             imageFile = { url -> app.notes.imageFile(session.path, url) },
                             onToggleTask = { task ->
                                 text?.let { t ->
-                                    if (task.offset in t.indices) {
-                                        session.replace(t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x"))
+                                    // Only ever a checkbox character: the blocks can be a moment behind the text.
+                                    if (!session.readOnly && task.offset in t.indices && t[task.offset] in " xX") {
+                                        val mark = if (task.checked) " " else "x"
+                                        val next = t.replaceRange(task.offset, task.offset + 1, mark)
+                                        // The hidden editor gets the same one-character change instead of reloading
+                                        // the whole note on the main thread (~100 ms for a long note).
+                                        val e = editor?.takeIf { session.editorText === t }
+                                        e?.editableText?.replace(task.offset, task.offset + 1, mark)
+                                        session.replace(next)
+                                        if (e != null) session.editorText = next
                                     }
                                 }
                             },
@@ -489,8 +505,10 @@ private fun LinkSuggestions(notes: Notes, typed: String, exclude: String, onPick
     val all = notes.state.collectAsStateWithLifecycle().value.notes
     val titles = remember(all, typed, exclude) {
         val q = normalize(typed)
-        all.asSequence().filter { it.path != exclude }.map { it.title }.distinct()
-            .mapNotNull { t -> normalize(t).indexOf(q).takeIf { it >= 0 }?.let { t to it } }
+        // The search index already holds every title without accents.
+        all.asSequence().filter { it.path != exclude }
+            .mapNotNull { m -> (notes.indexed(m.path)?.normTitle ?: normalize(m.title)).indexOf(q).takeIf { it >= 0 }?.let { m.title to it } }
+            .distinctBy { it.first }
             .sortedWith(compareBy({ it.second != 0 }, { it.first.length })).take(8).map { it.first }.toList()
     }
     if (titles.isEmpty()) return
@@ -503,6 +521,17 @@ private fun LinkSuggestions(notes: Notes, typed: String, exclude: String, onPick
             )
         }
     }
+}
+
+@Composable
+private fun Notice(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.errorContainer).padding(16.dp),
+    )
 }
 
 @Composable
