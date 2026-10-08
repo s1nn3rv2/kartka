@@ -4,6 +4,8 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.view.ViewGroup
+import android.widget.ScrollView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -11,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -43,6 +46,10 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.s1nn3rv2.kartka.editor.EditorColors
 import com.s1nn3rv2.kartka.editor.MarkdownEditText
+import com.s1nn3rv2.kartka.markdown.BlockBuilder
+import com.s1nn3rv2.kartka.markdown.MdBlock
+import com.s1nn3rv2.kartka.markdown.MdListItem
+import com.s1nn3rv2.kartka.ui.note.MarkdownView
 import com.s1nn3rv2.kartka.ui.theme.KartkaTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -127,24 +134,29 @@ private fun NoteList(onOpen: (File) -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NoteScreen(file: File, onBack: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val colors = EditorColors(
-        text = scheme.onSurface.toArgb(),
-        dim = scheme.onSurfaceVariant.copy(alpha = 0.7f).toArgb(),
-        primary = scheme.primary.toArgb(),
-        onPrimary = scheme.onPrimary.toArgb(),
-        outline = scheme.outline.toArgb(),
-        outlineVariant = scheme.outlineVariant.toArgb(),
-        codeBackground = scheme.surfaceContainerHigh.toArgb(),
-        quoteBackground = scheme.surfaceContainer.toArgb(),
-        inlineCodeBackground = scheme.surfaceContainerHighest.toArgb(),
-        tableHeaderBackground = scheme.secondaryContainer.toArgb(),
-    )
+    // ponytail: edits live in memory only until saving lands in milestone 2.
+    var text by remember(file) { mutableStateOf<String?>(null) }
+    LaunchedEffect(file) { text = withContext(Dispatchers.IO) { file.readText() } }
+    var editing by rememberSaveable { mutableStateOf(false) }
     var editor by remember { mutableStateOf<MarkdownEditText?>(null) }
-    LaunchedEffect(editor, file) {
-        val e = editor ?: return@LaunchedEffect
-        e.load(withContext(Dispatchers.IO) { file.readText() })
+    val blocks by produceState<List<MdBlock>?>(null, text) {
+        value = text?.let { withContext(Dispatchers.Default) { BlockBuilder.build(it) } }
     }
+    // Null until the blocks arrive; then seeded from Logseq's collapsed:: true. Reset after editing, since block
+    // indices can shift.
+    var folded by remember(file) { mutableStateOf<Set<Int>?>(null) }
+    LaunchedEffect(blocks) {
+        val b = blocks ?: return@LaunchedEffect
+        if (folded == null) folded = b.indices.filter { (b[it] as? MdListItem)?.collapsed == true }.toSet()
+    }
+    fun finishEditing() {
+        editor?.let { text = it.text.toString() }
+        editor = null
+        folded = null
+        editing = false
+    }
+    BackHandler(editing) { finishEditing() }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -155,14 +167,63 @@ private fun NoteScreen(file: File, onBack: () -> Unit) {
                     }
                 },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-                actions = { TextButton(onClick = { editor?.toggleFold() }) { Text("Fold") } },
+                actions = {
+                    if (editing) {
+                        TextButton(onClick = ::finishEditing) { Text("Done") }
+                    } else {
+                        TextButton(onClick = { editing = true }, enabled = text != null) { Text("Edit") }
+                    }
+                },
             )
         },
     ) { padding ->
-        AndroidView(
-            factory = { MarkdownEditText(it, colors).also { view -> editor = view } },
-            update = { it.setColors(colors) },
-            modifier = Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize(),
-        )
+        val content = Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()
+        if (editing) {
+            val colors = editorColors()
+            AndroidView(
+                factory = { context ->
+                    ScrollView(context).apply {
+                        isFillViewport = true
+                        addView(
+                            MarkdownEditText(context, colors).also { editor = it },
+                            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                        )
+                    }
+                },
+                update = { editor?.setColors(colors) },
+                modifier = content,
+            )
+            LaunchedEffect(editor) { editor?.let { e -> text?.let { e.load(it) } } }
+        } else {
+            val b = blocks
+            val f = folded
+            if (b != null && f != null) {
+                MarkdownView(
+                    blocks = b,
+                    folded = f,
+                    onToggleFold = { i -> folded = if (i in f) f - i else f + i },
+                    onToggleTask = { task ->
+                        text = text?.let { t ->
+                            if (task.offset !in t.indices) t else t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x")
+                        }
+                    },
+                    modifier = content,
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun editorColors(): EditorColors {
+    val scheme = MaterialTheme.colorScheme
+    return EditorColors(
+        text = scheme.onSurface.toArgb(),
+        dim = scheme.onSurfaceVariant.copy(alpha = 0.7f).toArgb(),
+        primary = scheme.primary.toArgb(),
+        tertiary = scheme.tertiary.toArgb(),
+        codeBackground = scheme.surfaceContainerHigh.toArgb(),
+        inlineCodeBackground = scheme.surfaceContainerHighest.toArgb(),
+    )
 }
