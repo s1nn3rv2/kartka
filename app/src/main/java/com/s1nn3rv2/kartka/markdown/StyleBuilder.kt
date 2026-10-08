@@ -239,8 +239,9 @@ object StyleBuilder {
                     val markerEnd = if (text.getOrNull(i + 1) == ' ') i + 2 else i + 1
                     add(i, markerEnd, Kind.MARKER)
                 }
-                add(span.inputIndex, lineEnd(span.inputIndex), Kind.QUOTE)
             }
+            val spans = quote.sourceSpans
+            if (spans.isNotEmpty()) add(spans.first().inputIndex, lineEnd(spans.last().inputIndex), Kind.QUOTE)
             visitChildren(quote)
         }
 
