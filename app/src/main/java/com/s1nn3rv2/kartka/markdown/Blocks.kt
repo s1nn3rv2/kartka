@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.markdown
 
+import org.commonmark.ext.footnotes.FootnoteDefinition
+import org.commonmark.ext.footnotes.FootnoteReference
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.gfm.tables.TableBlock
 import org.commonmark.ext.gfm.tables.TableCell
@@ -7,7 +9,9 @@ import org.commonmark.ext.gfm.tables.TableRow
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.BulletList
+import org.commonmark.node.AbstractVisitor
 import org.commonmark.node.Code
+import org.commonmark.node.CustomNode
 import org.commonmark.node.Emphasis
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.HardLineBreak
@@ -26,9 +30,9 @@ import org.commonmark.node.StrongEmphasis
 import org.commonmark.node.Text
 import org.commonmark.node.ThematicBreak
 
-enum class InlineStyle { STRONG, EMPH, STRIKE, CODE, LINK, WIKILINK, TAG, HIGHLIGHT }
+enum class InlineStyle { STRONG, EMPH, STRIKE, CODE, LINK, WIKILINK, TAG, HIGHLIGHT, FOOTNOTE }
 
-/** [url]: the link address, the wiki link target, or the tag name. */
+/** [url]: the link address, the wiki link target, the tag name, or the footnote label. */
 data class InlineSpan(val start: Int, val end: Int, val style: InlineStyle, val url: String? = null)
 
 /** Rendered inline text: plain characters plus style ranges over them. */
@@ -58,6 +62,9 @@ data class MdListItem(
 /** [offset]: position of the character between the brackets in the original text, for toggling. */
 data class Task(val checked: Boolean, val offset: Int)
 
+/** A footnote definition (`[^label]: text`), numbered by the order of the first reference to it. */
+data class MdFootnote(val number: String, val label: String, val text: Inline, override val indent: Int) : MdBlock
+
 data class MdCode(val code: String, val language: String?, override val indent: Int) : MdBlock
 data class MdRule(override val indent: Int) : MdBlock
 
@@ -77,11 +84,19 @@ object BlockBuilder {
     fun build(text: String): List<MdBlock> {
         val (doc, dedent) = Md.parse(text)
         val out = ArrayList<MdBlock>()
-        Walker(dedent, out).blocks(doc.firstChild, indent = 0, quote = null)
+        // Footnotes are numbered in the order they are first referenced, like in Obsidian.
+        val numbers = HashMap<String, String>()
+        doc.accept(object : AbstractVisitor() {
+            override fun visit(node: CustomNode) {
+                if (node is FootnoteReference) numbers.getOrPut(node.label) { "${numbers.size + 1}" }
+                visitChildren(node)
+            }
+        })
+        Walker(dedent, numbers, out).blocks(doc.firstChild, indent = 0, quote = null)
         return out
     }
 
-    private class Walker(val dedent: Dedent, val out: MutableList<MdBlock>) {
+    private class Walker(val dedent: Dedent, val numbers: Map<String, String>, val out: MutableList<MdBlock>) {
         fun blocks(first: Node?, indent: Int, quote: String?) {
             var n = first
             while (n != null) {
@@ -95,6 +110,7 @@ object BlockBuilder {
                     is IndentedCodeBlock -> out += MdCode(n.literal.trimEnd('\n'), null, indent)
                     is ThematicBreak -> out += MdRule(indent)
                     is TableBlock -> out += table(n, indent)
+                    is FootnoteDefinition -> footnote(n, indent, quote)
                     is HtmlBlock -> out += MdParagraph(Inline(n.literal.trimEnd()), indent, quote)
                     else -> blocks(n.firstChild, indent, quote)
                 }
@@ -120,6 +136,13 @@ object BlockBuilder {
             n?.unlink()
             out += MdCallout(type, title.toString().trim().ifEmpty { type.replaceFirstChar { it.uppercase() } }, indent)
             blocks(quote.firstChild, indent, quote = type)
+        }
+
+        fun footnote(def: FootnoteDefinition, indent: Int, quote: String?) {
+            var child = def.firstChild
+            val text = (child as? Paragraph)?.let { child = it.next; inline(it).first } ?: Inline("")
+            out += MdFootnote(numbers[def.label] ?: def.label, def.label, text, indent)
+            blocks(child, indent + 1, quote)
         }
 
         fun items(list: Node, indent: Int, quote: String?, start: Int?) {
@@ -218,6 +241,7 @@ object BlockBuilder {
                         is WikiLink -> styled(c, InlineStyle.WIKILINK, c.target) { sb.append((it as WikiLink).label) }
                         is Tag -> styled(c, InlineStyle.TAG, c.name) { sb.append('#').append((it as Tag).name) }
                         is Highlight -> styled(c, InlineStyle.HIGHLIGHT, walk = ::walk)
+                        is FootnoteReference -> styled(c, InlineStyle.FOOTNOTE, c.label) { (it as FootnoteReference).label.let { l -> sb.append(numbers[l] ?: l) } }
                         is Image -> styled(c, InlineStyle.LINK, c.destination) { img ->
                             val before = sb.length
                             walk(img)

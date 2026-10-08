@@ -75,4 +75,14 @@ class BlocksTest {
         assertEquals(listOf(0, 4), visibleBlocks(b, setOf(0)))
         assertFalse(canFold(b, 4))
     }
+
+    // References are numbered by first use (not by label) and the definition keeps the label for jumping to it.
+    @Test fun footnotes() {
+        val blocks = BlockBuilder.build("Text[^b] more[^a] again[^b].\n\n[^a]: Alpha.\n[^b]: Beta.\n")
+        val p = blocks[0] as MdParagraph
+        assertEquals("Text1 more2 again1.", p.text.text)
+        assertEquals(listOf("b", "a", "b"), p.text.spans.filter { it.style == InlineStyle.FOOTNOTE }.map { it.url })
+        val defs = blocks.filterIsInstance<MdFootnote>()
+        assertEquals(listOf("2" to "Alpha.", "1" to "Beta."), defs.map { it.number to it.text.text })
+    }
 }

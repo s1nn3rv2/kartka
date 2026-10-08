@@ -34,6 +34,12 @@ class StyleBuilderTest {
         assertEquals(listOf("#", "[[", "]]", "==", "=="), texts(md, Kind.MARKER))
     }
 
+    @Test fun footnoteSyntax() {
+        val md = "Text[^1].\n\n[^1]: Note.\n"
+        assertEquals(listOf("[^1]"), texts(md, Kind.LINK))
+        assertEquals(listOf("[^1]:"), texts(md, Kind.MARKER))
+    }
+
     @Test fun tableSyntaxIsDimmed() {
         val md = "| a | b |\n|---|---|\n| 1 | 2 |\n"
         assertEquals(6 + 1, texts(md, Kind.MARKER).size)

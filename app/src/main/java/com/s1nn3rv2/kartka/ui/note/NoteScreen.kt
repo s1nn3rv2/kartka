@@ -83,6 +83,7 @@ import com.s1nn3rv2.kartka.editor.MarkdownEditText
 import com.s1nn3rv2.kartka.markdown.BlockBuilder
 import com.s1nn3rv2.kartka.markdown.MdBlock
 import com.s1nn3rv2.kartka.markdown.InlineStyle
+import com.s1nn3rv2.kartka.markdown.MdFootnote
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
 import com.s1nn3rv2.kartka.markdown.foldEnd
@@ -187,6 +188,14 @@ fun NoteScreen(
         onBack()
     }
 
+    // Unfolds anything hiding block [index], then scrolls it to the top.
+    fun reveal(b: List<MdBlock>, index: Int) {
+        val open = folded.orEmpty().filterTo(HashSet()) { it >= index || foldEnd(b, it) <= index }
+        folded = open
+        val position = visibleBlocks(b, open).indexOf(index)
+        if (position >= 0) scope.launch { listState.animateScrollToItem(position) }
+    }
+
     if (showOutline) {
         val b = blocks.orEmpty()
         val headings = remember(b) { b.mapIndexedNotNull { i, block -> (block as? MdHeading)?.let { i to it } } }
@@ -199,12 +208,7 @@ fun NoteScreen(
                     val n = headings.indexOfFirst { it.first == index }
                     editor?.headings()?.getOrNull(n)?.let { editor?.jumpTo(it.first) }
                 } else {
-                    val f = folded.orEmpty()
-                    // Unfold anything hiding the heading, then scroll it to the top.
-                    val open = f.filterTo(HashSet()) { it >= index || foldEnd(b, it) <= index }
-                    folded = open
-                    val position = visibleBlocks(b, open).indexOf(index)
-                    if (position >= 0) scope.launch { listState.animateScrollToItem(position) }
+                    reveal(b, index)
                 }
             },
             onDismiss = { showOutline = false },
@@ -369,6 +373,7 @@ fun NoteScreen(
                         when (span.style) {
                             InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)
                             InlineStyle.TAG -> onOpenTag(span.url.orEmpty())
+                            InlineStyle.FOOTNOTE -> b.indexOfFirst { it is MdFootnote && it.label == span.url }.takeIf { it >= 0 }?.let { reveal(b, it) }
                             else -> Unit
                         }
                     },

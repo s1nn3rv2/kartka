@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.markdown
 
+import org.commonmark.ext.footnotes.FootnoteDefinition
+import org.commonmark.ext.footnotes.FootnoteReference
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.gfm.tables.TableBlock
 import org.commonmark.node.AbstractVisitor
@@ -74,6 +76,7 @@ object StyleBuilder {
                 is Highlight -> delimited(node, 2, Kind.HIGHLIGHT)
                 is WikiLink -> node.sourceSpans.singleOrNull()?.let { delimited(node, 2, Kind.LINK) }
                 is Tag -> node.sourceSpans.singleOrNull()?.let { add(it.inputIndex, it.end, Kind.TAG) }
+                is FootnoteReference -> node.sourceSpans.firstOrNull()?.let { add(it.inputIndex, it.inputIndex + node.label.length + 3, Kind.LINK) }
                 else -> visitChildren(node)
             }
         }
@@ -152,6 +155,11 @@ object StyleBuilder {
         }
 
         override fun visit(block: CustomBlock) {
+            if (block is FootnoteDefinition) {
+                // The `[^label]:` prefix is syntax.
+                block.sourceSpans.firstOrNull()?.let { add(it.inputIndex, it.inputIndex + block.label.length + 4, Kind.MARKER) }
+                return visitChildren(block)
+            }
             if (block !is TableBlock) return visitChildren(block)
             // Pipes and the |---| row are syntax; cell text keeps its inline styles.
             block.sourceSpans.forEachIndexed { row, span ->

@@ -60,11 +60,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.text.style.BaselineShift
 import com.s1nn3rv2.kartka.markdown.Inline
 import com.s1nn3rv2.kartka.markdown.InlineStyle
 import com.s1nn3rv2.kartka.markdown.MdBlock
 import com.s1nn3rv2.kartka.markdown.InlineSpan
 import com.s1nn3rv2.kartka.markdown.MdCallout
+import com.s1nn3rv2.kartka.markdown.MdFootnote
 import com.s1nn3rv2.kartka.markdown.MdCode
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
@@ -205,6 +208,11 @@ private fun Block(block: MdBlock, joinPrev: Boolean, joinNext: Boolean, onToggle
             )
         }
 
+        is MdFootnote -> Row(modifier) {
+            Text("${block.number}.", style = type.bodyMedium, color = colors.primary, modifier = Modifier.width(Gutter))
+            Text(block.text.annotated(), style = type.bodyMedium, color = colors.onSurfaceVariant)
+        }
+
         is MdCode -> Column(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh).padding(12.dp)) {
             block.language?.let { Text(it, style = type.labelSmall, color = colors.onSurfaceVariant) }
             Text(
@@ -302,6 +310,13 @@ private fun Inline.annotated(onLink: (InlineSpan) -> Unit): AnnotatedString {
                 )
                 InlineStyle.TAG -> addLink(
                     LinkAnnotation.Clickable(s.url.orEmpty(), TextLinkStyles(SpanStyle(color = colors.tertiary))) { currentOnLink(s) },
+                    s.start, s.end,
+                )
+                InlineStyle.FOOTNOTE -> addLink(
+                    LinkAnnotation.Clickable(
+                        s.url.orEmpty(),
+                        TextLinkStyles(SpanStyle(color = colors.primary, fontSize = 0.75.em, baselineShift = BaselineShift.Superscript)),
+                    ) { currentOnLink(s) },
                     s.start, s.end,
                 )
                 InlineStyle.HIGHLIGHT -> addStyle(SpanStyle(background = colors.tertiaryContainer, color = colors.onTertiaryContainer), s.start, s.end)

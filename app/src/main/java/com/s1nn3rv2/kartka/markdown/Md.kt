@@ -1,6 +1,7 @@
 package com.s1nn3rv2.kartka.markdown
 
 import org.commonmark.ext.autolink.AutolinkExtension
+import org.commonmark.ext.footnotes.FootnotesExtension
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TablesExtension
 import org.commonmark.ext.task.list.items.TaskListItemsExtension
@@ -12,7 +13,9 @@ import org.commonmark.parser.Parser
 object Md {
     private val parser: Parser = Parser.builder()
         .extensions(
-            listOf(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create(), AutolinkExtension.create()),
+            listOf(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create(), AutolinkExtension.create(),
+                FootnotesExtension.create(),
+            ),
         )
         .postProcessor(NotesInlinesPostProcessor())
         .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
