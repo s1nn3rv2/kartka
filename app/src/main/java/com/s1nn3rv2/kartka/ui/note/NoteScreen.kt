@@ -1,5 +1,13 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import com.s1nn3rv2.kartka.storage.NotesRepository
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.coroutines.cancellation.CancellationException
 import androidx.compose.animation.core.Animatable
@@ -331,7 +339,7 @@ fun NoteScreen(
 
     if (showMove) {
         val folders by app.notes.state.collectAsStateWithLifecycle()
-        MoveDialog(
+        MoveSheet(
             folders = folders.folders,
             current = session.path.substringBeforeLast('/', ""),
             onPick = { folder ->
@@ -632,24 +640,96 @@ private fun NoteListSheet(title: String, empty: String, notes: List<NoteMeta>, o
 }
 
 /** Picks the folder to move a note into. */
+/**
+ * Where to move the note: a sheet with the folder tree (indented by depth), a search field, the current folder
+ * marked, and a row that creates a new folder and moves the note into it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MoveDialog(folders: List<String>, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Move to folder") },
-        text = {
-            LazyColumn {
-                items(folders.filter { it != current }, key = { it }) { folder ->
-                    ListItem(
-                        onClick = { onPick(folder) },
-                        leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                    ) { Text(folder.ifEmpty { "Notes folder" }) }
+private fun MoveSheet(folders: List<String>, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val query = rememberTextFieldState()
+    var creating by remember { mutableStateOf(false) }
+    val newName = rememberTextFieldState()
+    val colors = MaterialTheme.colorScheme
+    val q = query.text.toString().trim()
+    val shown = remember(folders, q) {
+        // Alphabetical ignoring capitals; a folder's subfolders follow it, so the tree reads top to bottom.
+        val sorted = folders.sortedBy { it.lowercase() }
+        if (q.isEmpty()) sorted else sorted.filter { normalize(it).contains(normalize(q)) }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            Text("Move to folder", style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(start = 8.dp))
+            Text(
+                "Now in " + when {
+                    current.startsWith(NotesRepository.SCRATCH) -> "Scratch"
+                    current.isEmpty() -> "Notes folder"
+                    else -> current
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 12.dp),
+            )
+            if (folders.size > 6) {
+                OutlinedTextField(
+                    state = query,
+                    placeholder = { Text("Search folders") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    lineLimits = TextFieldLineLimits.SingleLine,
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                )
+            }
+            val itemColors = ListItemDefaults.segmentedColors(containerColor = colors.surfaceContainerHigh)
+            LazyColumn(Modifier.heightIn(max = 420.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
+                itemsIndexed(shown, key = { _, f -> f }) { i, folder ->
+                    val here = folder == current
+                    val depth = if (q.isEmpty() && folder.isNotEmpty()) folder.count { it == '/' } + 1 else 0
+                    SegmentedListItem(
+                        onClick = { if (!here) onPick(folder) },
+                        shapes = ListItemDefaults.segmentedShapes(index = i, count = shown.size),
+                        colors = if (here) ListItemDefaults.segmentedColors(containerColor = colors.secondaryContainer) else itemColors,
+                        leadingContent = {
+                            Icon(
+                                if (folder.isEmpty()) Icons.Outlined.Home else if (here) Icons.Filled.Folder else Icons.Outlined.Folder,
+                                contentDescription = null,
+                                modifier = Modifier.padding(start = 20.dp * (depth - 1).coerceAtLeast(0)),
+                            )
+                        },
+                        // While searching, the whole path shows so same-named folders can be told apart.
+                        supportingContent = if (q.isNotEmpty() && folder.contains('/')) ({ Text(folder.substringBeforeLast('/')) }) else null,
+                        trailingContent = if (here) ({ Text("Current", style = MaterialTheme.typography.labelMedium) }) else null,
+                        modifier = Modifier.padding(bottom = ListItemDefaults.SegmentedGap),
+                    ) { Text(if (folder.isEmpty()) "Notes folder" else folder.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
             }
-        },
-        confirmButton = { },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            if (creating) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        state = newName,
+                        placeholder = { Text("Folder name") },
+                        lineLimits = TextFieldLineLimits.SingleLine,
+                        shape = CircleShape,
+                        modifier = Modifier.weight(1f),
+                    )
+                    val name = newName.text.toString().trim().replace(Regex("""[\\:*?"<>|]"""), "").trim('/')
+                    Button(
+                        onClick = { onPick(name) },
+                        enabled = name.isNotEmpty() && !name.startsWith("."),
+                        shapes = ButtonDefaults.shapes(),
+                    ) { Text("Move") }
+                }
+            } else {
+                SegmentedListItem(
+                    onClick = { creating = true },
+                    shapes = ListItemDefaults.segmentedShapes(index = 0, count = 1),
+                    colors = ListItemDefaults.segmentedColors(containerColor = colors.primaryContainer),
+                    leadingContent = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
+                    modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
+                ) { Text("New folder") }
+            }
+        }
+    }
 }
 
 /** The headings of the note in order; tapping one jumps to it. */
