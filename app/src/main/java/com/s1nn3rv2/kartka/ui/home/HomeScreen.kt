@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.height
@@ -12,7 +14,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.Surface
-import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.WideNavigationRailDefaults
 import kotlin.coroutines.cancellation.CancellationException
 import androidx.activity.compose.PredictiveBackHandler
@@ -773,23 +774,20 @@ private fun FolderRail(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpenS
             tree.children.forEach { add(it, 0) }
         }
     }
+    // Full-width pill rows like the expanded rail's items: the whole line is tappable and shows the press.
     @Composable
     fun Item(label: String, icon: ImageVector, count: Int = 0, depth: Int = 0, onClick: () -> Unit) {
-        WideNavigationRailItem(
-            selected = false,
-            onClick = onClick,
-            icon = { Icon(icon, contentDescription = null) },
-            label = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (count > 0) {
-                        Text("  $count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            },
-            railExpanded = true,
-            modifier = Modifier.padding(start = 16.dp * depth, end = 12.dp),
-        )
+        val colors = MaterialTheme.colorScheme
+        Row(
+            Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(56.dp).clip(CircleShape).clickable(onClick = onClick)
+                .padding(start = 16.dp + 16.dp * depth, end = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = colors.onSurfaceVariant)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (count > 0) Text("$count", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+        }
     }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
         Text(

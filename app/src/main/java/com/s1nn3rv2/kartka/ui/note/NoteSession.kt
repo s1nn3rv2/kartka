@@ -64,7 +64,21 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
     var conflict by mutableStateOf(false)
         private set
 
-    private fun diskChanged(repo: NotesRepository) = repo.file(path).lastModified().let { it != 0L && it != diskModified }
+    /**
+     * True when the file holds different text than this session last loaded or saved. The modified time alone isn't
+     * trusted: phone storage can report a stale time right after a save, and other apps or sync can touch a file
+     * without changing it. So a different time only counts when the text differs too. Runs under [fileLock].
+     */
+    private fun diskChanged(repo: NotesRepository): Boolean {
+        val modified = repo.file(path).lastModified()
+        if (modified == 0L || modified == diskModified) return false
+        val onDisk = runCatching { repo.read(path).text }.getOrNull() ?: return false
+        if (onDisk == savedText) {
+            diskModified = modified
+            return false
+        }
+        return true
+    }
 
     val hasUnsavedChanges get() = pendingFromEditor != null || text != savedText
 

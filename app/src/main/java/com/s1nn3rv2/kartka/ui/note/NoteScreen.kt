@@ -1,5 +1,8 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.fadeOut
@@ -529,18 +532,22 @@ private fun Notice(text: String) {
 @Composable
 private fun ConflictBanner(onUseTheirs: () -> Unit, onKeepMine: () -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
+    // Neutral surface colors, so the text and buttons stay readable with any wallpaper palette.
     Column(
-        modifier.padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.tertiaryContainer)
-            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+        modifier.padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.surfaceContainerHighest)
+            .padding(start = 16.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
     ) {
-        Text(
-            "This note changed on another device while you were editing it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onTertiaryContainer,
-        )
-        Row(Modifier.align(Alignment.End)) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Outlined.Sync, contentDescription = null, tint = colors.primary)
+            Text(
+                "This note changed on another device while you were editing it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurface,
+            )
+        }
+        Row(Modifier.align(Alignment.End).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = onUseTheirs) { Text("Use theirs") }
-            TextButton(onClick = onKeepMine) { Text("Keep mine") }
+            Button(onClick = onKeepMine, shapes = ButtonDefaults.shapes()) { Text("Keep mine") }
         }
     }
 }
