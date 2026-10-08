@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.s1nn3rv2.kartka.ui.SlideStack
 import com.s1nn3rv2.kartka.ui.home.HomeScreen
 import com.s1nn3rv2.kartka.ui.rememberSlideStack
+import com.s1nn3rv2.kartka.ui.settings.SettingsScreen
 import com.s1nn3rv2.kartka.ui.note.NoteScreen
 import com.s1nn3rv2.kartka.ui.onboarding.OnboardingScreen
 import com.s1nn3rv2.kartka.ui.theme.KartkaTheme
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
 /** Screens. The back stack is a plain list; Navigation 3 animates between entries, including predictive back. */
 sealed interface Route {
     data object Home : Route
+    data object Settings : Route
     data class Folder(val path: String) : Route
     /** [isNew]: just created, so it opens in Edit mode with the title field focused. */
     data class Note(val path: String, val isNew: Boolean = false) : Route
@@ -91,6 +93,7 @@ private fun App(app: KartkaApp) {
                     onOpenFolder = { stack.push(Route.Folder(it)) },
                     onNewNote = { folder -> scope.launch { notes.create(folder)?.let { openNote(it, isNew = true) } } },
                     onNewScratch = { scope.launch { notes.create("", scratch = true)?.let { openNote(it, isNew = true) } } },
+                    onOpenSettings = { stack.push(Route.Settings) },
                     onBack = null,
                 )
             }
@@ -102,9 +105,11 @@ private fun App(app: KartkaApp) {
                     onOpenFolder = { stack.push(Route.Folder(it)) },
                     onNewNote = { folder -> scope.launch { notes.create(folder)?.let { openNote(it, isNew = true) } } },
                     onNewScratch = { scope.launch { notes.create("", scratch = true)?.let { openNote(it, isNew = true) } } },
+                    onOpenSettings = { stack.push(Route.Settings) },
                     onBack = { back() },
                 )
             }
+            Route.Settings -> SettingsScreen(notes, onBack = { back() })
             is Route.Note -> {
                 NoteScreen(app, route.path, route.isNew, onBack = { back() })
             }

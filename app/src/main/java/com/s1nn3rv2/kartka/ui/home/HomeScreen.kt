@@ -2,7 +2,16 @@ package com.s1nn3rv2.kartka.ui.home
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -10,10 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
@@ -25,6 +31,9 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DrawerValue
@@ -74,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.s1nn3rv2.kartka.NoteLayout
 import com.s1nn3rv2.kartka.Notes
 import com.s1nn3rv2.kartka.NotesState
 import com.s1nn3rv2.kartka.index.Age
@@ -99,9 +109,11 @@ fun HomeScreen(
     onOpenFolder: (String) -> Unit,
     onNewNote: (folder: String) -> Unit,
     onNewScratch: () -> Unit,
+    onOpenSettings: () -> Unit,
     onBack: (() -> Unit)?,
 ) {
     val state by notes.state.collectAsStateWithLifecycle()
+    val layout by notes.layout.collectAsStateWithLifecycle()
     if (folder == null) {
         val scope = rememberCoroutineScope()
         val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -109,16 +121,23 @@ fun HomeScreen(
         ModalNavigationDrawer(
             drawerState = drawer,
             drawerContent = {
-                FolderDrawer(folderTree(state.folders, state.notes)) { path ->
-                    scope.launch { drawer.close() }
-                    onOpenFolder(path)
-                }
+                FolderDrawer(
+                    folderTree(state.folders, state.notes),
+                    onOpenFolder = { path ->
+                        scope.launch { drawer.close() }
+                        onOpenFolder(path)
+                    },
+                    onOpenSettings = {
+                        scope.launch { drawer.close() }
+                        onOpenSettings()
+                    },
+                )
             },
         ) {
-            Home(notes, state, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch)
+            Home(notes, state, layout, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch)
         }
     } else {
-        Folder(notes, state, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {})
+        Folder(notes, state, layout, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {})
     }
 }
 
@@ -127,6 +146,7 @@ fun HomeScreen(
 private fun Home(
     notes: Notes,
     state: NotesState,
+    layout: NoteLayout,
     onOpenNote: (String) -> Unit,
     onMenu: () -> Unit,
     onNewNote: () -> Unit,
@@ -147,7 +167,7 @@ private fun Home(
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
         )
     }
-    val list = rememberLazyListState()
+    val list = rememberLazyStaggeredGridState()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -175,9 +195,9 @@ private fun Home(
                 ContainedLoadingIndicator(Modifier.align(Alignment.Center))
             } else {
                 val groups = remember(state.notes) { state.notes.groupBy { age(it.modified) }.toSortedMap() }
-                LazyColumn(state = list, contentPadding = listPadding(padding)) {
-                    if (state.notes.isEmpty()) item { Empty("No notes yet. Tap + to write one.") }
-                    for ((age, items) in groups) noteGroup(age.label, items, notes, state.indexVersion, showFolder = true, onOpenNote)
+                NoteGrid(layout, list, padding) {
+                    if (state.notes.isEmpty()) fullLine("empty") { Empty("No notes yet. Tap + to write one.") }
+                    for ((age, items) in groups) noteGroup(age.label, items, layout, notes, state.indexVersion, showFolder = true, onOpenNote)
                 }
             }
             NewNoteMenu(list, onNewNote, onNewScratch, Modifier.align(Alignment.BottomEnd).padding(padding))
@@ -190,6 +210,7 @@ private fun Home(
 private fun Folder(
     notes: Notes,
     state: NotesState,
+    layout: NoteLayout,
     folder: String,
     onOpenNote: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
@@ -202,7 +223,7 @@ private fun Folder(
     val subfolders = remember(state.folders, folder) {
         state.folders.filter { it.isNotEmpty() && it.substringBeforeLast('/', "") == folder }.sortedBy { it.lowercase() }
     }
-    val list = rememberLazyListState()
+    val list = rememberLazyStaggeredGridState()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -219,10 +240,10 @@ private fun Folder(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize()) {
-            LazyColumn(state = list, contentPadding = listPadding(padding)) {
+            NoteGrid(layout, list, padding) {
                 if (subfolders.isNotEmpty()) {
-                    item(key = "folders") { GroupLabel("Folders") }
-                    itemsIndexed(subfolders, key = { _, p -> "f:$p" }) { i, path ->
+                    fullLine("folders") { GroupLabel("Folders") }
+                    itemsIndexed(subfolders, key = { _, p -> "f:$p" }, span = { _, _ -> StaggeredGridItemSpan.FullLine }) { i, path ->
                         SegmentedListItem(
                             onClick = { onOpenFolder(path) },
                             shapes = ListItemDefaults.segmentedShapes(index = i, count = subfolders.size),
@@ -232,8 +253,8 @@ private fun Folder(
                         ) { Text(path.substringAfterLast('/')) }
                     }
                 }
-                if (here.isEmpty() && subfolders.isEmpty()) item { Empty("Nothing here yet. Tap + to write a note in this folder.") }
-                if (here.isNotEmpty()) noteGroup("Notes", here, notes, indexVersion = state.indexVersion, showFolder = false, onOpenNote)
+                if (here.isEmpty() && subfolders.isEmpty()) fullLine("empty") { Empty("Nothing here yet. Tap + to write a note in this folder.") }
+                if (here.isNotEmpty()) noteGroup("Notes", here, layout, notes, state.indexVersion, showFolder = false, onOpenNote)
             }
             NewNoteMenu(list, onNewNote, onNewScratch, Modifier.align(Alignment.BottomEnd).padding(padding))
         }
@@ -253,7 +274,7 @@ private fun listPadding(bars: PaddingValues): PaddingValues {
 }
 
 @Composable
-private fun GroupLabel(text: String) {
+internal fun GroupLabel(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.titleSmallEmphasized,
@@ -272,18 +293,72 @@ private fun Empty(text: String) {
     )
 }
 
-/** A labelled, segmented group of notes: one rounded container per note, large corners only at the group's ends. */
-private fun LazyListScope.noteGroup(
+/**
+ * Notes in one column of segmented rows (List) or a grid of cards (Cards, two columns on a phone, more on wider
+ * screens). Labels and folders always span the full width.
+ */
+@Composable
+private fun NoteGrid(layout: NoteLayout, state: LazyStaggeredGridState, bars: PaddingValues, content: LazyStaggeredGridScope.() -> Unit) {
+    val cards = layout == NoteLayout.CARDS
+    LazyVerticalStaggeredGrid(
+        columns = if (cards) StaggeredGridCells.Adaptive(160.dp) else StaggeredGridCells.Fixed(1),
+        state = state,
+        contentPadding = listPadding(bars),
+        horizontalArrangement = Arrangement.spacedBy(if (cards) 8.dp else 0.dp),
+        verticalItemSpacing = if (cards) 8.dp else 0.dp,
+        content = content,
+    )
+}
+
+private fun LazyStaggeredGridScope.fullLine(key: String, content: @Composable () -> Unit) =
+    item(key = key, span = StaggeredGridItemSpan.FullLine) { content() }
+
+/** A labelled group of notes: segmented rows (large corners only at the group's ends) or cards. */
+private fun LazyStaggeredGridScope.noteGroup(
     label: String,
     items: List<NoteMeta>,
+    layout: NoteLayout,
     notes: Notes,
     indexVersion: Int,
     showFolder: Boolean,
     onOpenNote: (String) -> Unit,
 ) {
-    item(key = "label:$label") { GroupLabel(label) }
+    fullLine("label:$label") { GroupLabel(label) }
     itemsIndexed(items, key = { _, m -> m.path }) { i, meta ->
-        NoteRow(meta, i, items.size, notes, indexVersion, showFolder, onOpenNote)
+        if (layout == NoteLayout.CARDS) {
+            NoteCard(meta, notes, indexVersion, showFolder, onOpenNote)
+        } else {
+            NoteRow(meta, i, items.size, notes, indexVersion, showFolder, onOpenNote)
+        }
+    }
+}
+
+@Composable
+private fun NoteCard(meta: NoteMeta, notes: Notes, indexVersion: Int, showFolder: Boolean, onOpenNote: (String) -> Unit) {
+    val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it, max = 280) }.orEmpty() }
+    val colors = MaterialTheme.colorScheme
+    Card(
+        onClick = { onOpenNote(meta.path) },
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            if (showFolder && meta.folder.isNotEmpty()) {
+                Text(meta.folder, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(meta.title, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (snippet.isNotEmpty()) {
+                Text(
+                    snippet,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 8,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            Text(relativeTime(meta.modified), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
+        }
     }
 }
 
@@ -349,7 +424,7 @@ private fun highlighted(r: SearchResult, style: SpanStyle): AnnotatedString = bu
 
 /** The FAB menu: New note and Scratch note. Hides while scrolling down, comes back when scrolling up. */
 @Composable
-private fun NewNoteMenu(list: LazyListState, onNewNote: () -> Unit, onNewScratch: () -> Unit, modifier: Modifier) {
+private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onNewScratch: () -> Unit, modifier: Modifier) {
     var open by rememberSaveable { mutableStateOf(false) }
     BackHandler(open) { open = false }
     val visible by remember { derivedStateOf { !list.lastScrolledForward || !list.canScrollForward } }
@@ -386,7 +461,7 @@ private fun NewNoteMenu(list: LazyListState, onNewNote: () -> Unit, onNewScratch
 
 /** The sidebar: every folder, nested by indentation, with how many notes sit directly in it. */
 @Composable
-private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit) {
+private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpenSettings: () -> Unit) {
     val rows = remember(tree) {
         buildList {
             fun add(node: FolderNode, depth: Int) {
@@ -402,7 +477,7 @@ private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit) {
             style = MaterialTheme.typography.titleLargeEmphasized,
             modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 16.dp),
         )
-        LazyColumn {
+        LazyColumn(Modifier.weight(1f)) {
             if (rows.isEmpty()) item { Empty("No folders yet.") }
             itemsIndexed(rows, key = { _, r -> r.first.path }) { _, (node, depth) ->
                 NavigationDrawerItem(
@@ -415,5 +490,12 @@ private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit) {
                 )
             }
         }
+        NavigationDrawerItem(
+            label = { Text("Settings") },
+            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+            selected = false,
+            onClick = onOpenSettings,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+        )
     }
 }
