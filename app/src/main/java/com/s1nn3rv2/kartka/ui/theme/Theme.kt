@@ -18,12 +18,14 @@ import androidx.compose.ui.platform.LocalContext
 fun KartkaTheme(darkTheme: Boolean = isSystemInDarkTheme(), dynamicColor: Boolean = true, content: @Composable () -> Unit) {
     val context = LocalContext.current
     MaterialExpressiveTheme(
+        // Screens use "background" and bars use "surface"; some system palettes make them slightly different,
+        // which shows as a band behind the top bars. One color for both.
         colorScheme = when {
             dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
             dynamicColor -> dynamicLightColorScheme(context)
             darkTheme -> darkColorScheme()
             else -> lightColorScheme()
-        },
+        }.let { it.copy(background = it.surface, onBackground = it.onSurface) },
         motionScheme = MotionScheme.expressive(),
         content = content,
     )
