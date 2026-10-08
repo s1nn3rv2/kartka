@@ -29,7 +29,8 @@ class NotesRepository(val root: File) {
             for (f in children) {
                 val childRel = if (rel.isEmpty()) f.name else "$rel/${f.name}"
                 if (f.isDirectory) {
-                    if (PathRules.isListedFolder(f.name)) walk(f, childRel)
+                    // The app's own photo folder holds no notes; keep it out of the folder list.
+                    if (PathRules.isListedFolder(f.name) && childRel != ATTACHMENTS) walk(f, childRel)
                 } else if (PathRules.isNote(f.name)) {
                     notes += NoteMeta(childRel, f.lastModified(), f.length())
                 }

@@ -84,5 +84,6 @@ class NotesRepositoryTest {
         assertEquals("../../$path", PathRules.relative("Recipes/Cakes", path))
         val second = repo().saveAttachment("2".byteInputStream(), "jpg")
         assertTrue(second != path && File(tmp.root, path).readText() == "img")
+        assertTrue(NotesRepository.ATTACHMENTS !in repo().scan().second)
     }
 }
