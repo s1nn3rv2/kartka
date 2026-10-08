@@ -85,4 +85,12 @@ class EditsTest {
         assertEquals(Triple(12, 10, ""), u.undo())
         assertEquals(Triple(11, 1, ""), u.undo())
     }
+
+    // An inserted image always gets a paragraph of its own, so View mode shows it as a picture.
+    @Test fun imageGetsItsOwnParagraph() {
+        assertEquals("ab\n\n![](x.jpg)|\n\ncd", show(Edits.image(e("ab|cd"), "x.jpg")))
+        assertEquals("ab\n\n![](x.jpg)|\n\ncd", show(Edits.image(e("ab\n|\ncd"), "x.jpg")))
+        assertEquals("![](x.jpg)|\n\nab", show(Edits.image(e("|ab"), "x.jpg")))
+        assertEquals("ab\n\n![](x.jpg)|", show(Edits.image(e("ab|"), "x.jpg")))
+    }
 }

@@ -60,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.io.File
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.text.style.BaselineShift
 import com.s1nn3rv2.kartka.markdown.Inline
@@ -68,6 +69,7 @@ import com.s1nn3rv2.kartka.markdown.MdBlock
 import com.s1nn3rv2.kartka.markdown.InlineSpan
 import com.s1nn3rv2.kartka.markdown.MdCallout
 import com.s1nn3rv2.kartka.markdown.MdFootnote
+import com.s1nn3rv2.kartka.markdown.MdImage
 import com.s1nn3rv2.kartka.markdown.MdCode
 import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
@@ -92,6 +94,7 @@ fun MarkdownView(
     onToggleFold: (Int) -> Unit,
     onToggleTask: (Task) -> Unit,
     onLink: (InlineSpan) -> Unit,
+    imageFile: (String) -> File?,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
     state: LazyListState = rememberLazyListState(),
@@ -106,7 +109,7 @@ fun MarkdownView(
                 val joinNext = joins(blocks[i], visible.getOrNull(pos + 1)?.let { blocks[it] })
                 Row(Modifier.padding(start = 4.dp + IndentStep * blocks[i].indent, end = 20.dp)) {
                     FoldArrow(foldable[i], i in folded, top(blocks[i])) { onToggleFold(i) }
-                    Block(blocks[i], joinPrev, joinNext, onToggleTask, onLink)
+                    Block(blocks[i], joinPrev, joinNext, onToggleTask, onLink, imageFile)
                 }
             }
         }
@@ -147,7 +150,14 @@ private fun FoldArrow(foldable: Boolean, folded: Boolean, top: Dp, onClick: () -
 }
 
 @Composable
-private fun Block(block: MdBlock, joinPrev: Boolean, joinNext: Boolean, onToggleTask: (Task) -> Unit, onLink: (InlineSpan) -> Unit) {
+private fun Block(
+    block: MdBlock,
+    joinPrev: Boolean,
+    joinNext: Boolean,
+    onToggleTask: (Task) -> Unit,
+    onLink: (InlineSpan) -> Unit,
+    imageFile: (String) -> File?,
+) {
     @Composable
     fun Inline.annotated() = annotated(onLink)
     val colors = MaterialTheme.colorScheme
@@ -207,6 +217,8 @@ private fun Block(block: MdBlock, joinPrev: Boolean, joinNext: Boolean, onToggle
                 },
             )
         }
+
+        is MdImage -> LocalImage(remember(block.url) { imageFile(block.url) }, block.url, block.alt, modifier)
 
         is MdFootnote -> Row(modifier) {
             Text("${block.number}.", style = type.bodyMedium, color = colors.primary, modifier = Modifier.width(Gutter))

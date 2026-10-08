@@ -37,6 +37,9 @@ object PathRules {
     fun title(fileName: String) = fileName.substring(0, fileName.length - 3)
 
     /** A safe file name for [title], or null when nothing usable is left. */
+    /** [target] (relative to the notes folder) as seen from [folder], for markdown links: `../attachments/x.jpg`. */
+    fun relative(folder: String, target: String) = "../".repeat(if (folder.isEmpty()) 0 else folder.count { it == '/' } + 1) + target
+
     fun fileName(title: String): String? {
         val clean = illegal.replace(title, "").trim().trimEnd('.')
         return if (clean.isEmpty() || clean.startsWith(".")) null else "$clean.md"

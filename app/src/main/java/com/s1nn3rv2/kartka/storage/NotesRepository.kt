@@ -68,6 +68,16 @@ class NotesRepository(val root: File) {
         return join(folder, name)
     }
 
+    /** Copies [input] to `attachments/<date-time>.<extension>` and returns that path (relative to the notes folder). */
+    fun saveAttachment(input: java.io.InputStream, extension: String): String {
+        val dir = file(ATTACHMENTS).apply { mkdirs() }
+        val stamp = java.time.LocalDateTime.now().toString().take(19).replace(':', '-')
+        val name = generateSequence(1) { it + 1 }.map { if (it == 1) "$stamp.$extension" else "$stamp $it.$extension" }
+            .first { !File(dir, it).exists() }
+        File(dir, name).outputStream().use { input.copyTo(it) }
+        return join(ATTACHMENTS, name)
+    }
+
     /** Renames the note in place; returns the new path (unchanged when the title is unusable or the same). */
     fun rename(path: String, title: String): String {
         val name = PathRules.fileName(title) ?: return path
@@ -120,6 +130,7 @@ class NotesRepository(val root: File) {
 
     companion object {
         const val TRASH = ".trash"
+        const val ATTACHMENTS = "attachments"
         const val SCRATCH = ".scratch"
     }
 }

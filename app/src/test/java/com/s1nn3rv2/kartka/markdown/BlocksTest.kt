@@ -85,4 +85,12 @@ class BlocksTest {
         val defs = blocks.filterIsInstance<MdFootnote>()
         assertEquals(listOf("2" to "Alpha.", "1" to "Beta."), defs.map { it.number to it.text.text })
     }
+
+    // Only a local image alone in its paragraph becomes a picture; web images (no internet) and inline ones stay text.
+    @Test fun images() {
+        val blocks = BlockBuilder.build("![cat](../attachments/c%20a.jpg)\n\n![web](https://x.y/a.png)\n\nSee ![i](a.png) here\n")
+        assertEquals(MdImage("../attachments/c%20a.jpg", "cat", 0), blocks[0])
+        assertTrue(blocks[1] is MdParagraph)
+        assertTrue(blocks[2] is MdParagraph)
+    }
 }

@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.FloatingToolbarDefaults
@@ -30,7 +31,7 @@ import com.s1nn3rv2.kartka.markdown.Edits
 
 /** Formatting toolbar floating above the keyboard in Edit mode. Scrolls sideways when it doesn't fit. */
 @Composable
-fun EditToolbar(editor: MarkdownEditText, canUndo: Boolean, canRedo: Boolean, modifier: Modifier = Modifier) {
+fun EditToolbar(editor: MarkdownEditText, canUndo: Boolean, canRedo: Boolean, onImage: () -> Unit, modifier: Modifier = Modifier) {
     HorizontalFloatingToolbar(
         expanded = true,
         colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
@@ -50,6 +51,7 @@ fun EditToolbar(editor: MarkdownEditText, canUndo: Boolean, canRedo: Boolean, mo
             Action(Icons.Filled.ArrowDownward, "Move down") { editor.applyEdit { Edits.move(it, up = false) } }
             Action(Icons.Filled.Code, "Code") { editor.applyEdit { Edits.toggleWrap(it, "`") } }
             Action(Icons.Filled.Link, "Link") { editor.applyEdit(Edits::link) }
+            Action(Icons.Filled.Image, "Image", onClick = onImage)
         }
     }
 }

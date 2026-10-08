@@ -174,6 +174,17 @@ object Edits {
     }
 
     /** Inserts a markdown link around the selection (or a placeholder) and selects the URL part to type over. */
+    /** Puts `![](path)` in a paragraph of its own (blank lines around it) at the cursor, replacing any selection. */
+    fun image(e: Edit, path: String): Edit {
+        fun breaks(have: Int) = "\n".repeat(2 - have.coerceAtMost(2))
+        val before = if (e.start == 0) "" else breaks(e.text.take(e.start).takeLastWhile { it == '\n' }.length)
+        val after = if (e.end == e.text.length) "" else breaks(e.text.drop(e.end).takeWhile { it == '\n' }.length)
+        val image = "![]($path)"
+        val cursor = e.start + before.length + image.length
+        val inserted = before + image + after
+        return Edit(e.text.replaceRange(e.start, e.end, inserted), cursor, cursor)
+    }
+
     fun link(e: Edit): Edit {
         val label = e.text.substring(e.start, e.end).ifEmpty { "text" }
         val inserted = "[$label](url)"

@@ -65,6 +65,9 @@ data class Task(val checked: Boolean, val offset: Int)
 /** A footnote definition (`[^label]: text`), numbered by the order of the first reference to it. */
 data class MdFootnote(val number: String, val label: String, val text: Inline, override val indent: Int) : MdBlock
 
+/** A paragraph holding only an image of a local file; [url] is the path as written, relative to the note's folder. */
+data class MdImage(val url: String, val alt: String, override val indent: Int) : MdBlock
+
 data class MdCode(val code: String, val language: String?, override val indent: Int) : MdBlock
 data class MdRule(override val indent: Int) : MdBlock
 
@@ -79,6 +82,7 @@ data class MdTable(
 /** Pure Kotlin: markdown text in, View-mode rows out. */
 object BlockBuilder {
     private val property = Regex("""^[\w-]+:: ?(.*)$""")
+    private val scheme = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*:""")
     private val calloutMarker = Regex("""^\[!(\w+)][+-]?[ \t]*""")
 
     fun build(text: String): List<MdBlock> {
@@ -102,7 +106,8 @@ object BlockBuilder {
             while (n != null) {
                 when (n) {
                     is Heading -> out += MdHeading(n.level, inline(n).first, indent)
-                    is Paragraph -> inline(n).first.takeIf { it.text.isNotBlank() }?.let { out += MdParagraph(it, indent, quote) }
+                    is Paragraph -> localImage(n)?.let { out += MdImage(it.destination, inline(it).first.text, indent) }
+                        ?: inline(n).first.takeIf { it.text.isNotBlank() }?.let { out += MdParagraph(it, indent, quote) }
                     is BlockQuote -> blockQuote(n, indent)
                     is BulletList -> items(n, indent, quote, null)
                     is OrderedList -> items(n, indent, quote, n.markerStartNumber ?: 1)
@@ -136,6 +141,13 @@ object BlockBuilder {
             n?.unlink()
             out += MdCallout(type, title.toString().trim().ifEmpty { type.replaceFirstChar { it.uppercase() } }, indent)
             blocks(quote.firstChild, indent, quote = type)
+        }
+
+        /** The image when [p] holds nothing else and points to a file (web images stay links: no internet access). */
+        fun localImage(p: Paragraph): Image? {
+            val image = p.firstChild as? Image ?: return null
+            val rest = generateSequence(image.next) { it.next }.all { it is SoftLineBreak || it is HardLineBreak || (it is Text && it.literal.isBlank()) }
+            return image.takeIf { rest && !scheme.containsMatchIn(it.destination) }
         }
 
         fun footnote(def: FootnoteDefinition, indent: Int, quote: String?) {

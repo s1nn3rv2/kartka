@@ -1,6 +1,8 @@
 package com.s1nn3rv2.kartka
 
 import android.content.Context
+import android.net.Uri
+import android.webkit.MimeTypeMap
 import android.os.FileObserver
 import com.s1nn3rv2.kartka.index.IndexedNote
 import com.s1nn3rv2.kartka.index.SearchResult
@@ -10,6 +12,7 @@ import com.s1nn3rv2.kartka.markdown.MdBlock
 import com.s1nn3rv2.kartka.storage.LoadedNote
 import com.s1nn3rv2.kartka.storage.NoteMeta
 import com.s1nn3rv2.kartka.storage.NotesRepository
+import com.s1nn3rv2.kartka.storage.PathRules
 import com.s1nn3rv2.kartka.storage.TextFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +51,7 @@ data class NotesState(
  */
 class Notes(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val resolver = context.applicationContext.contentResolver
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val index = ConcurrentHashMap<String, IndexedNote>()
     private val refreshLock = Mutex()
@@ -177,6 +181,17 @@ class Notes(context: Context) {
 
     private suspend fun <T> io(block: (NotesRepository) -> T): T? =
         withContext(Dispatchers.IO) { repository?.let(block) }.also { refreshSoon() }
+
+    /** Copies a picked photo into the attachments folder; returns its path as seen from the note at [notePath]. */
+    suspend fun attach(uri: Uri, notePath: String): String? = io { repo ->
+        val extension = resolver.getType(uri)?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) } ?: "jpg"
+        resolver.openInputStream(uri)?.use { repo.saveAttachment(it, extension) }
+            ?.let { PathRules.relative(notePath.substringBeforeLast('/', ""), it) }
+    }
+
+    /** The file an image link [url] in the note at [notePath] points to (relative to the note's folder, like PC editors). */
+    fun imageFile(notePath: String, url: String): File? =
+        repository?.let { File(it.file(notePath).parentFile, Uri.decode(url)).normalize() }
 
     /** Where `[[target]]` in the note at [from] leads, if that note exists. */
     fun resolveLink(target: String, from: String): String? =

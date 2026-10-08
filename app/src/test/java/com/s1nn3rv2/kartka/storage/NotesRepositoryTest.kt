@@ -74,4 +74,15 @@ class NotesRepositoryTest {
         assertEquals(1, r.purge(NotesRepository.SCRATCH, cutoff = 5000))
         assertEquals(listOf(".scratch/new.md"), r.listHidden(NotesRepository.SCRATCH).map { it.path })
     }
+
+    // Photos go to one attachments folder; links to them must work from notes at any depth, on the PC too.
+    @Test fun attachments() {
+        val path = repo().saveAttachment("img".byteInputStream(), "jpg")
+        assertTrue(path.startsWith("attachments/") && path.endsWith(".jpg"))
+        assertEquals("img", File(tmp.root, path).readText())
+        assertEquals(path, PathRules.relative("", path))
+        assertEquals("../../$path", PathRules.relative("Recipes/Cakes", path))
+        val second = repo().saveAttachment("2".byteInputStream(), "jpg")
+        assertTrue(second != path && File(tmp.root, path).readText() == "img")
+    }
 }

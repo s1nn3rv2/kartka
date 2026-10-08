@@ -1,5 +1,9 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import com.s1nn3rv2.kartka.markdown.Edits
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.compose.rememberLauncherForActivityResult
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
@@ -178,6 +182,11 @@ fun NoteScreen(
     LaunchedEffect(editing, editor) { if (editing && !untitled) focusEditor() }
 
     fun finishEditing() {
+        // The editor stays alive under View mode, so it must give up focus or the keyboard stays open.
+        editor?.let { e ->
+            e.clearFocus()
+            context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(e.windowToken, 0)
+        }
         session.saveNow()
         session.rename(title.text.toString().trim())
         editing = false
@@ -186,6 +195,11 @@ fun NoteScreen(
     val leave = {
         if (editing) finishEditing()
         onBack()
+    }
+
+    // Photos are copied into the attachments folder and linked at the cursor.
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch { app.notes.attach(uri, session.path)?.let { path -> editor?.applyEdit { Edits.image(it, path) } } }
     }
 
     // Unfolds anything hiding block [index], then scrolls it to the top.
@@ -377,6 +391,7 @@ fun NoteScreen(
                             else -> Unit
                         }
                     },
+                    imageFile = { url -> app.notes.imageFile(session.path, url) },
                     onToggleTask = { task ->
                         text?.let { t ->
                             if (task.offset in t.indices) {
@@ -391,7 +406,11 @@ fun NoteScreen(
             }
             val e = editor
             if (editing && e != null) {
-                EditToolbar(e, canUndo, canRedo, Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp))
+                EditToolbar(
+                    e, canUndo, canRedo,
+                    onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp),
+                )
             }
         }
     }
