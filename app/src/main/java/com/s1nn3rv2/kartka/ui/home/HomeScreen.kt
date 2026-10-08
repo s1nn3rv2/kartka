@@ -1,5 +1,11 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.PushPin
 import com.s1nn3rv2.kartka.SortOrder
@@ -189,46 +195,53 @@ private fun Home(
     }
     val list = rememberLazyStaggeredGridState()
     val selection = rememberSelection(notes, state, snackbar)
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        // Both in Scaffold slots, so a snackbar lifts the FAB menu above itself instead of covering it.
-        snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
-        topBar = {
-            if (selection.active) return@Scaffold SelectionBar(selection, notes) { state.notes.map { it.path } }
-            AppBarWithSearch(
-                state = search,
-                inputField = inputField,
-                scrollBehavior = scrollBehavior,
-                colors = colors,
-                navigationIcon = {
-                    IconButton(onClick = onMenu, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Folders")
+    // The status bar area takes the bar's color, so the bar reads as one solid piece when it slides back in
+    // (otherwise the notes show through above it).
+    val scrolled by remember { derivedStateOf { list.canScrollBackward } }
+    val statusBarColor by animateColorAsState(if (scrolled) colors.scrolledAppBarContainerColor else colors.appBarContainerColor)
+    Box {
+        Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            // Both in Scaffold slots, so a snackbar lifts the FAB menu above itself instead of covering it.
+            snackbarHost = { SnackbarHost(snackbar) },
+            floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
+            topBar = {
+                if (selection.active) return@Scaffold SelectionBar(selection, notes) { state.notes.map { it.path } }
+                AppBarWithSearch(
+                    state = search,
+                    inputField = inputField,
+                    scrollBehavior = scrollBehavior,
+                    colors = colors,
+                    navigationIcon = {
+                        IconButton(onClick = onMenu, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Filled.Menu, contentDescription = "Folders")
+                        }
+                    },
+                )
+                ExpandedFullScreenContainedSearchBar(state = search, inputField = inputField, colors = colors.searchBarColors) {
+                    SearchResults(notes, query) { path ->
+                        scope.launch { search.animateToCollapsed() }
+                        onOpenNote(path)
                     }
-                },
-            )
-            ExpandedFullScreenContainedSearchBar(state = search, inputField = inputField, colors = colors.searchBarColors) {
-                SearchResults(notes, query) { path ->
-                    scope.launch { search.animateToCollapsed() }
-                    onOpenNote(path)
                 }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize()) {
-            if (!state.loaded) {
-                ContainedLoadingIndicator(Modifier.align(Alignment.Center))
-            } else {
-                val pins by notes.pins.collectAsStateWithLifecycle()
-                val groups = remember(state.notes, pins, sort) { groupNotes(state.notes, pins, sort, restLabel = null) }
-                // A pin added while at the top would appear above the first visible row; keep the top in view.
-                LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
-                NoteGrid(layout, list, padding) {
-                    if (state.notes.isEmpty()) fullLine("empty") { Empty("No notes yet. Tap + to write one.") }
-                    for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = true, selection, onOpenNote)
+            },
+        ) { padding ->
+            Box(Modifier.fillMaxSize()) {
+                if (!state.loaded) {
+                    ContainedLoadingIndicator(Modifier.align(Alignment.Center))
+                } else {
+                    val pins by notes.pins.collectAsStateWithLifecycle()
+                    val groups = remember(state.notes, pins, sort) { groupNotes(state.notes, pins, sort, restLabel = null) }
+                    // A pin added while at the top would appear above the first visible row; keep the top in view.
+                    LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
+                    NoteGrid(layout, list, padding) {
+                        if (state.notes.isEmpty()) fullLine("empty") { Empty("No notes yet. Tap + to write one.") }
+                        for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = true, selection, onOpenNote)
+                    }
                 }
             }
         }
+        Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(statusBarColor))
     }
 }
 
