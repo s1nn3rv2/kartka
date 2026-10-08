@@ -405,14 +405,28 @@ private fun LazyStaggeredGridScope.noteGroup(
 ) {
     fullLine("label:$label") { GroupLabel(label) }
     itemsIndexed(items, key = { _, m -> m.path }, contentType = { _, _ -> "note" }) { i, meta ->
+        val haptics = LocalHapticFeedback.current
         // Holding a note starts selecting; while selecting, a tap adds or removes a note instead of opening it.
-        val onClick = { if (selection.active) selection.toggle(meta.path) else onOpenNote(meta.path) }
-        val onLongClick = { selection.toggle(meta.path) }
+        val onClick = {
+            if (selection.active) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                selection.toggle(meta.path)
+            } else {
+                onOpenNote(meta.path)
+            }
+        }
+        val onLongClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            selection.toggle(meta.path)
+        }
         val selected = if (selection.active) meta.path in selection.paths else null
-        if (layout == NoteLayout.CARDS) {
-            NoteCard(meta, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
-        } else {
-            NoteRow(meta, i, items.size, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
+        // Notes glide to their new place with the theme's springs when pinned, deleted, restored or re-sorted.
+        Box(Modifier.animateItem()) {
+            if (layout == NoteLayout.CARDS) {
+                NoteCard(meta, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
+            } else {
+                NoteRow(meta, i, items.size, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
+            }
         }
     }
 }
@@ -475,6 +489,7 @@ private fun SelectionAware(selecting: Boolean, selectionBar: @Composable () -> U
 private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<String>) {
     val pins by notes.pins.collectAsStateWithLifecycle()
     val allPinned = pins.containsAll(selection.paths)
+    val haptics = LocalHapticFeedback.current
     TopAppBar(
         // While the bar animates away the selection is already empty; keep showing the last count.
         title = {
@@ -493,6 +508,7 @@ private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<Str
             }
             IconButton(
                 onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                     notes.setPinned(selection.paths, !allPinned)
                     selection.set(emptySet())
                 },
@@ -500,7 +516,13 @@ private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<Str
             ) {
                 Icon(if (allPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, contentDescription = if (allPinned) "Unpin" else "Pin")
             }
-            IconButton(onClick = selection.delete, shapes = IconButtonDefaults.shapes()) {
+            IconButton(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    selection.delete()
+                },
+                shapes = IconButtonDefaults.shapes(),
+            ) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Move to trash")
             }
         },
@@ -546,7 +568,6 @@ private fun NoteCard(
     val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it, max = 280) }.orEmpty() }
     val colors = MaterialTheme.colorScheme
     val shape = MaterialTheme.shapes.large
-    val haptics = LocalHapticFeedback.current
     val container by animateColorAsState(if (selected == true) colors.secondaryContainer else colors.surfaceContainer, MaterialTheme.motionScheme.defaultEffectsSpec())
     Card(
         shape = shape,
@@ -555,10 +576,7 @@ private fun NoteCard(
         border = if (pinned) BorderStroke(1.dp, colors.primary.copy(alpha = 0.6f)) else null,
         modifier = Modifier.clip(shape).combinedClickable(
             onClick = onClick,
-            onLongClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onLongClick()
-            },
+            onLongClick = onLongClick,
             onLongClickLabel = "Select",
         ),
     ) {

@@ -1,5 +1,9 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -115,14 +119,19 @@ fun MarkdownView(
 ) {
     val visible = remember(blocks, folded) { visibleBlocks(blocks, folded) }
     val foldable = remember(blocks) { BooleanArray(blocks.size) { canFold(blocks, it) } }
+    val haptics = LocalHapticFeedback.current
     SelectionContainer(modifier) {
         LazyColumn(state = state, contentPadding = contentPadding) {
             itemsIndexed(visible, key = { _, i -> i }, contentType = { _, i -> blocks[i]::class }) { pos, i ->
                 // Rows of one quote or callout are drawn as a single box.
                 val joinPrev = joins(visible.getOrNull(pos - 1)?.let { blocks[it] }, blocks[i])
                 val joinNext = joins(blocks[i], visible.getOrNull(pos + 1)?.let { blocks[it] })
-                Row(Modifier.padding(start = 4.dp + IndentStep * blocks[i].indent, end = 20.dp)) {
-                    FoldArrow(foldable[i], i in folded, top(blocks[i])) { onToggleFold(i) }
+                // Rows revealed or hidden by a fold fade and slide into place with the theme's springs.
+                Row(Modifier.animateItem().padding(start = 4.dp + IndentStep * blocks[i].indent, end = 20.dp)) {
+                    FoldArrow(foldable[i], i in folded, top(blocks[i])) {
+                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                        onToggleFold(i)
+                    }
                     Block(blocks[i], joinPrev, joinNext, onToggleTask, onLink, imageFile)
                 }
             }
@@ -154,11 +163,13 @@ private fun FoldArrow(foldable: Boolean, folded: Boolean, top: Dp, onClick: () -
         Modifier.padding(top = top).size(Gutter).clip(CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
+        // One arrow that turns with a spring, instead of swapping two icons.
+        val turn by animateFloatAsState(if (folded) -90f else 0f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "fold arrow")
         Icon(
-            if (folded) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Filled.KeyboardArrowDown,
+            Icons.Filled.KeyboardArrowDown,
             contentDescription = if (folded) "Unfold" else "Fold",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
         )
     }
 }
@@ -214,7 +225,15 @@ private fun Block(
             Box(Modifier.width(if (block.task != null) 32.dp else Gutter).height(24.dp), contentAlignment = Alignment.Center) {
                 when {
                     block.task != null -> CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                        Checkbox(block.task.checked, onCheckedChange = { onToggleTask(block.task) }, Modifier.size(20.dp))
+                        val haptics = LocalHapticFeedback.current
+                        Checkbox(
+                            block.task.checked,
+                            onCheckedChange = {
+                                haptics.performHapticFeedback(if (it) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
+                                onToggleTask(block.task)
+                            },
+                            Modifier.size(20.dp),
+                        )
                     }
                     block.marker == "•" -> Box(Modifier.size(6.dp).clip(CircleShape).background(colors.onSurfaceVariant))
                     else -> Text(block.marker, style = type.bodyLarge, color = colors.primary)

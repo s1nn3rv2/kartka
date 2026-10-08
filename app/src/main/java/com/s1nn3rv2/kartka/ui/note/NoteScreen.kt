@@ -1,5 +1,13 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material.icons.outlined.Sync
@@ -190,6 +198,8 @@ fun NoteScreen(
     var showMove by remember { mutableStateOf(false) }
     var showBacklinks by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
+    val spring = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
+    val slide = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     // Set while the cursor is after an unfinished `[[`: where the name starts and what's typed so far.
     var linkQuery by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
@@ -349,6 +359,7 @@ fun NoteScreen(
                         }
                         val pinned = session.path in app.notes.pins.collectAsStateWithLifecycle().value
                         fun close(then: () -> Unit) = { showMenu = false; then() }
+                        val haptics = LocalHapticFeedback.current
                         GroupedMenu(
                             expanded = showMenu,
                             onDismiss = { showMenu = false },
@@ -356,7 +367,10 @@ fun NoteScreen(
                                 listOfNotNull(
                                     if (session.isScratch) MenuAction("Keep", Icons.Outlined.Bookmark, onClick = close { session.move(app.notes.defaultFolder) }) else null,
                                     MenuAction(if (pinned) "Unpin" else "Pin", if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                        onClick = close { app.notes.setPinned(listOf(session.path), !pinned) }),
+                                        onClick = close {
+                                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            app.notes.setPinned(listOf(session.path), !pinned)
+                                        }),
                                     MenuAction("Share", Icons.Outlined.Share, onClick = close {
                                         val body = if (editing) editor?.text?.toString() else session.text
                                         val send = Intent(Intent.ACTION_SEND).setType("text/plain")
@@ -372,6 +386,7 @@ fun NoteScreen(
                                 listOf(
                                     MenuAction("Move to folder", Icons.AutoMirrored.Outlined.DriveFileMove, onClick = close { showMove = true }),
                                     MenuAction("Delete", Icons.Outlined.Delete, danger = true, onClick = close {
+                                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                         app.scope.launch { session.trash()?.let(onTrashed) }
                                     }),
                                 ),
@@ -394,7 +409,10 @@ fun NoteScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            if (session.conflict) ConflictBanner(session::useTheirs, session::keepMine)
+            // Banners grow in and shrink away with a spring instead of popping.
+            AnimatedVisibility(session.conflict, enter = expandVertically(spring) + fadeIn(), exit = shrinkVertically(spring) + fadeOut()) {
+                ConflictBanner(session::useTheirs, session::keepMine)
+            }
             when {
                 session.readOnly -> Notice("This file isn't UTF-8 text. It's shown read-only here, so saving can't damage its letters.")
                 session.saveFailed -> Notice("Couldn't save this note (is the storage full?). Your text is kept and saved with the next change.")
@@ -475,8 +493,16 @@ fun NoteScreen(
                     }
                 }
                 val e = editor
-                if (editing && e != null) {
-                    Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                // The toolbar rises in with a spring when editing starts and sinks away on Done.
+                // Called by full name: inside this Box, the Column's own AnimatedVisibility would be picked.
+                androidx.compose.animation.AnimatedVisibility(
+                    editing && e != null,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = slideInVertically(slide) { it } + fadeIn(),
+                    exit = slideOutVertically(slide) { it } + fadeOut(),
+                ) {
+                    if (e == null) return@AnimatedVisibility
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         linkQuery?.let { (start, typed) ->
                             LinkSuggestions(app.notes, typed, exclude = session.path) { title ->
                                 e.applyEdit { Edits.completeLink(it, start, title) }

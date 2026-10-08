@@ -1,5 +1,13 @@
 package com.s1nn3rv2.kartka.ui.settings
 
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import com.s1nn3rv2.kartka.ui.GroupedMenu
 import com.s1nn3rv2.kartka.ui.MenuAction
 import com.s1nn3rv2.kartka.SortOrder
@@ -72,6 +80,8 @@ import com.s1nn3rv2.kartka.ui.onboarding.treeUriToPath
 @Composable
 fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
+    fun toggled(on: Boolean) = haptics.performHapticFeedback(if (on) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff)
     val layout by settings.layout.state.collectAsStateWithLifecycle()
     val theme by settings.theme.state.collectAsStateWithLifecycle()
     val sort by settings.sort.state.collectAsStateWithLifecycle()
@@ -142,7 +152,7 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(checked = dynamicColor, onCheckedChange = { settings.dynamicColor.value = it })
+                        Switch(checked = dynamicColor, onCheckedChange = { toggled(it); settings.dynamicColor.value = it })
                     }
                     Text("App name", style = MaterialTheme.typography.titleMedium)
                     ChoiceToggle(AppName.entries.map { it to it.label }, appName, { settings.setAppName(context, it) })
@@ -158,7 +168,10 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
             item { GroupLabel("Privacy") }
             item {
                 SegmentedListItem(
-                    onClick = { settings.hideInRecents.value = !hideInRecents },
+                    onClick = {
+                        toggled(!hideInRecents)
+                        settings.hideInRecents.value = !hideInRecents
+                    },
                     shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
                     colors = colors,
                     leadingContent = { Icon(Icons.Outlined.VisibilityOff, contentDescription = null) },
@@ -171,10 +184,13 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                 SegmentedListItem(
                     onClick = {
                         if (lock) {
+                            toggled(false)
                             settings.lock.value = false
                         } else if (canLock(context)) {
+                            toggled(true)
                             settings.lock.value = true
                         } else {
+                            haptics.performHapticFeedback(HapticFeedbackType.Reject)
                             Toast.makeText(context, "Set up a screen lock in Android settings first.", Toast.LENGTH_LONG).show()
                         }
                     },
@@ -185,8 +201,10 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                     trailingContent = { Switch(checked = lock, onCheckedChange = null) },
                 ) { Text("Lock ${LocalAppName.current}") }
             }
-            if (lock) {
-                item {
+            item {
+                // Grows in with a spring when the lock is turned on, instead of popping into the list.
+                val spring = MaterialTheme.motionScheme.defaultSpatialSpec<IntSize>()
+                AnimatedVisibility(lock, enter = expandVertically(spring) + fadeIn(), exit = shrinkVertically(spring) + fadeOut()) {
                     Column(
                         Modifier.padding(top = 12.dp).fillMaxWidth().background(colors.containerColor, MaterialTheme.shapes.large).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -238,11 +256,15 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
 /** One choice out of a few, as a connected button group: the selected option fills and the shapes morph on press. */
 @Composable
 private fun <T> ChoiceToggle(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, icons: List<ImageVector>? = null) {
+    val haptics = LocalHapticFeedback.current
     Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
         options.forEachIndexed { i, (value, label) ->
             ToggleButton(
                 checked = selected == value,
-                onCheckedChange = { onSelect(value) },
+                onCheckedChange = {
+                    if (selected != value) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    onSelect(value)
+                },
                 shapes = when (i) {
                     0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                     options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
