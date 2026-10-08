@@ -145,7 +145,8 @@ private fun Block(block: MdBlock, onToggleTask: (Task) -> Unit) {
         }
 
         is MdListItem -> Row(modifier) {
-            Box(Modifier.width(Gutter).height(24.dp), contentAlignment = Alignment.Center) {
+            // Checkboxes are wider than a bullet dot, so they get a wider slot to keep a gap before the text.
+            Box(Modifier.width(if (block.task != null) 32.dp else Gutter).height(24.dp), contentAlignment = Alignment.Center) {
                 when {
                     block.task != null -> CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                         Checkbox(block.task.checked, onCheckedChange = { onToggleTask(block.task) }, Modifier.size(20.dp))

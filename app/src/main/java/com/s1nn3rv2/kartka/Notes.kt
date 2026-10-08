@@ -31,6 +31,8 @@ data class NotesState(
     val notes: List<NoteMeta> = emptyList(),
     /** Relative folder paths, "" is the notes folder itself. */
     val folders: List<String> = emptyList(),
+    /** Bumped whenever note contents in the index change, so previews refresh. */
+    val indexVersion: Int = 0,
 )
 
 /**
@@ -83,13 +85,14 @@ class Notes(context: Context) {
             val (metas, folders) = repo.scan()
             val sorted = metas.sortedByDescending { it.modified }
             // Show the list right away; contents fill in below.
-            _state.value = NotesState(loaded = true, notes = sorted, folders = folders.sorted())
+            _state.value = _state.value.copy(loaded = true, notes = sorted, folders = folders.sorted())
             val keep = metas.mapTo(HashSet()) { it.path }
             index.keys.retainAll(keep)
             val reader = Dispatchers.IO.limitedParallelism(4)
             metas.filter { m -> index[m.path]?.meta.let { it == null || it.modified != m.modified || it.size != m.size } }
                 .map { m -> async(reader) { runCatching { index[m.path] = IndexedNote(m, repo.read(m.path).text) } } }
                 .awaitAll()
+            _state.value = _state.value.copy(indexVersion = _state.value.indexVersion + 1)
             watch(repo, folders)
         }
     }
@@ -100,6 +103,11 @@ class Notes(context: Context) {
             delay(500)
             refresh()
         }
+    }
+
+    /** Creates an empty note (named after the current date and time) in [folder], or in the scratch folder. */
+    suspend fun create(folder: String, scratch: Boolean = false): String? = withContext(Dispatchers.IO) {
+        repository?.create(if (scratch) NotesRepository.SCRATCH else folder, "")?.also { refreshSoon() }
     }
 
     suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.Default) { search(index.values, query) }
