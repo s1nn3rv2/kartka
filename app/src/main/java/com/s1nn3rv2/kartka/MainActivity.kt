@@ -1,6 +1,7 @@
 package com.s1nn3rv2.kartka
 
 import android.graphics.drawable.ColorDrawable
+import android.content.Intent
 import android.os.Bundle
 import android.os.Environment
 import androidx.activity.ComponentActivity
@@ -21,15 +22,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.s1nn3rv2.kartka.ui.SlideStack
 import com.s1nn3rv2.kartka.ui.home.HiddenNotesScreen
 import com.s1nn3rv2.kartka.ui.home.HomeScreen
 import com.s1nn3rv2.kartka.ui.rememberSlideStack
 import com.s1nn3rv2.kartka.ui.settings.SettingsScreen
+import com.s1nn3rv2.kartka.ui.share.ShareSheet
 import com.s1nn3rv2.kartka.ui.note.NoteScreen
 import com.s1nn3rv2.kartka.ui.onboarding.OnboardingScreen
 import com.s1nn3rv2.kartka.ui.theme.KartkaTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+
+private const val ACTION_NEW_NOTE = "com.s1nn3rv2.kartka.NEW_NOTE"
+private const val ACTION_NEW_SCRATCH = "com.s1nn3rv2.kartka.NEW_SCRATCH"
 
 /** Screens. The back stack is a plain list of these, animated by [SlideStack]. */
 sealed interface Route {
@@ -65,8 +72,18 @@ sealed interface Route {
 }
 
 class MainActivity : ComponentActivity() {
+    /** Shortcut and share intents waiting for the app to handle them (also when it is already open). */
+    private val pendingIntent = MutableStateFlow<Intent?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        pendingIntent.value = intent
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Only a fresh start carries a new request; after recreation the intent was already handled.
+        if (savedInstanceState == null) pendingIntent.value = intent
         enableEdgeToEdge()
         val app = application as KartkaApp
         setContent {
@@ -75,14 +92,14 @@ class MainActivity : ComponentActivity() {
                 // the platform's plain light or dark background.
                 val background = MaterialTheme.colorScheme.background.toArgb()
                 SideEffect { window.setBackgroundDrawable(ColorDrawable(background)) }
-                App(app)
+                App(app, pendingIntent)
             }
         }
     }
 }
 
 @Composable
-private fun App(app: KartkaApp) {
+private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
     val notes = app.notes
     var ready by remember { mutableStateOf(Environment.isExternalStorageManager() && notes.canRead()) }
     if (!ready) {
@@ -118,6 +135,43 @@ private fun App(app: KartkaApp) {
             if (result == SnackbarResult.ActionPerformed) notes.restore(trashPath)
         }
     }
+    // Launcher shortcuts start a note right away; shared text asks where it should go.
+    var shared by remember { mutableStateOf<Intent?>(null) }
+    val incoming by pendingIntent.collectAsStateWithLifecycle()
+    LaunchedEffect(incoming) {
+        val intent = incoming ?: return@LaunchedEffect
+        pendingIntent.value = null
+        when (intent.action) {
+            ACTION_NEW_NOTE -> notes.create(notes.defaultFolder)?.let { openNote(it, isNew = true) }
+            ACTION_NEW_SCRATCH -> notes.create("", scratch = true)?.let { openNote(it, isNew = true) }
+            Intent.ACTION_SEND -> if (!intent.getStringExtra(Intent.EXTRA_TEXT).isNullOrBlank()) shared = intent
+        }
+    }
+    shared?.let { intent ->
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty()
+        fun saveNew(scratch: Boolean) {
+            shared = null
+            scope.launch {
+                notes.createWith(text, if (scratch) "" else notes.defaultFolder, scratch, title = subject)?.let { openNote(it, isNew = true) }
+            }
+        }
+        ShareSheet(
+            notes = notes,
+            text = text,
+            onNewNote = { saveNew(scratch = false) },
+            onScratch = { saveNew(scratch = true) },
+            onAppendTo = { path ->
+                shared = null
+                scope.launch {
+                    notes.append(path, text)
+                    openNote(path)
+                }
+            },
+            onDismiss = { shared = null },
+        )
+    }
+
     SlideStack(stack) { route ->
         when (route) {
             Route.Home -> {

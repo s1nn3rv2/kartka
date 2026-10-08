@@ -10,6 +10,7 @@ import com.s1nn3rv2.kartka.markdown.MdBlock
 import com.s1nn3rv2.kartka.storage.LoadedNote
 import com.s1nn3rv2.kartka.storage.NoteMeta
 import com.s1nn3rv2.kartka.storage.NotesRepository
+import com.s1nn3rv2.kartka.storage.TextFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -141,6 +142,23 @@ class Notes(context: Context) {
 
     /** The prepared note for [path], handed out once. */
     fun takePrepared(path: String): Prepared? = prepared?.takeIf { it.path == path }?.also { prepared = null }
+
+    /** Creates a note holding [text] (shared from another app), named [title] or the date and time. */
+    suspend fun createWith(text: String, folder: String, scratch: Boolean, title: String = ""): String? = io { repo ->
+        repo.create(if (scratch) NotesRepository.SCRATCH else folder, title).also { repo.write(it, text, TextFormat()) }
+    }
+
+    /** Adds [text] at the end of a note, separated by a blank line. */
+    suspend fun append(path: String, text: String) = io { repo ->
+        val note = repo.read(path)
+        val separator = when {
+            note.text.isEmpty() -> ""
+            note.text.endsWith("\n\n") -> ""
+            note.text.endsWith("\n") -> "\n"
+            else -> "\n\n"
+        }
+        repo.write(path, note.text + separator + text, note.format)
+    }
 
     /** Notes in the trash or scratch folder, newest first. */
     suspend fun hidden(folder: String): List<NoteMeta> =

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the launcher icon: start a note or a scratch note straight away. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_note"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_note">
+        <intent
+            android:action="com.s1nn3rv2.kartka.NEW_NOTE"
+            android:targetClass="com.s1nn3rv2.kartka.MainActivity"
+            android:targetPackage="com.s1nn3rv2.kartka" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_scratch"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_new_scratch">
+        <intent
+            android:action="com.s1nn3rv2.kartka.NEW_SCRATCH"
+            android:targetClass="com.s1nn3rv2.kartka.MainActivity"
+            android:targetPackage="com.s1nn3rv2.kartka" />
+    </shortcut>
+</shortcuts>

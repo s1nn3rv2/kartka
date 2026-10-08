@@ -97,7 +97,12 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
     val scope = rememberCoroutineScope()
     LaunchedEffect(session) { if (prepared == null) session.load() }
     // Leaving the note (back, predictive back, process going away) saves whatever is pending.
-    DisposableEffect(session) { onDispose { session.saveNow() } }
+    DisposableEffect(session) {
+        onDispose {
+            session.saveNow()
+            if (isNew) session.discardIfEmpty()
+        }
+    }
     LifecycleResumeEffect(session) {
         scope.launch { session.reloadIfChangedOnDisk() }
         onPauseOrDispose { session.saveNow() }

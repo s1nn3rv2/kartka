@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Kartka</string>
+    <string name="shortcut_new_note">New note</string>
+    <string name="shortcut_new_scratch">Scratch note</string>
 </resources>

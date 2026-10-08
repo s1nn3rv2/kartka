@@ -141,6 +141,20 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
 
     val isScratch get() = path.startsWith(NotesRepository.SCRATCH + "/")
 
+    /** A new note left without any text is deleted, so quick captures abandoned halfway leave no empty files behind. */
+    fun discardIfEmpty() {
+        val repo = notes.repository ?: return
+        scope.launch {
+            fileLock.withLock {
+                saveLocked()
+                if (closed || !text.isNullOrBlank()) return@withLock
+                closed = true
+                withContext(Dispatchers.IO) { repo.file(path).takeIf { it.length() == 0L }?.delete() }
+            }
+            notes.refreshSoon()
+        }
+    }
+
     /** Reloads when the file changed on disk (e.g. Syncthing) and nothing here is unsaved. True if it reloaded. */
     suspend fun reloadIfChangedOnDisk(): Boolean {
         val repo = notes.repository ?: return false
