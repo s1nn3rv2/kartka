@@ -11,9 +11,17 @@ private val lineMarker = Regex("""^\s*(#{1,6}\s+|[-*+]\s+(\[[ xX]]\s+)?|>\s*|\[!
 private val property = Regex("""^\s*[\w-]+::""")
 private val inlineMarks = Regex("""\*\*|__|~~|==|`|\[\[(?:[^]|\n]*\|)?([^]\n]*)]]|!?\[([^]]*)]\([^)]*\)|\[\^[^]\s]*](?::\s*)?""")
 
-/** A one-glance preview of a note: its first text lines without markdown symbols, code, math blocks or Logseq properties. */
-fun preview(text: String, max: Int = 160): String {
+/** One line of markdown as plain text: list, heading and quote markers gone, links shown by their label. */
+internal fun plainLine(raw: String): String =
+    inlineMarks.replace(lineMarker.replace(raw, "")) { it.groupValues[1] + it.groupValues[2] }.trim()
+
+/**
+ * A one-glance preview of a note: its first text lines without markdown symbols, code, math blocks or Logseq
+ * properties. A first line that just repeats the note's [title] (a "# Title" heading) is left out.
+ */
+fun preview(text: String, max: Int = 160, title: String? = null): String {
     val sb = StringBuilder()
+    var first = true
     var inCode = false
     for (raw in text.lineSequence()) {
         if (raw.trimStart().startsWith("```") || raw.trim() == "$$") {
@@ -21,8 +29,12 @@ fun preview(text: String, max: Int = 160): String {
             continue
         }
         if (inCode || raw.isBlank() || property.containsMatchIn(raw)) continue
-        val line = inlineMarks.replace(lineMarker.replace(raw, "")) { it.groupValues[1] + it.groupValues[2] }.trim()
+        val line = plainLine(raw)
         if (line.isEmpty()) continue
+        if (first) {
+            first = false
+            if (title != null && normalize(line) == normalize(title)) continue
+        }
         if (sb.isNotEmpty()) sb.append(" · ")
         sb.append(line)
         if (sb.length >= max) break

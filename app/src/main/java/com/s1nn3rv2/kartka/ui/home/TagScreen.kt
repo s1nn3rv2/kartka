@@ -69,7 +69,7 @@ fun TagScreen(notes: Notes, tag: String, onOpenNote: (String) -> Unit, onBack: (
                     shapes = ListItemDefaults.segmentedShapes(index = i, count = results.size),
                     colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     overlineContent = r.meta.folder.takeIf { it.isNotEmpty() }?.let { { Text(it, maxLines = 1) } },
-                    supportingContent = { Text(notes.indexed(r.meta.path)?.text?.let { preview(it) }.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = { Text(notes.indexed(r.meta.path)?.text?.let { preview(it, title = r.meta.title) }.orEmpty(), maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     modifier = Modifier.padding(bottom = ListItemDefaults.SegmentedGap),
                 ) { Text(r.meta.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }

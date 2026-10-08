@@ -61,4 +61,11 @@ class SearchTest {
         assertTrue(r.snippet.substring(r.highlights[0]).startsWith("#zdrowie"))
         assertTrue(search(notes, "#nosuchtag").isEmpty())
     }
+
+    // Result snippets read like the note, not like its markdown source.
+    @Test fun snippetsArePlainText() {
+        val r = search(listOf(note("Trip.md", "## Saturday\n- [x] Pick up the [[Bike shop|bike]] #travel")), "bike").single()
+        assertEquals("Saturday · Pick up the bike #travel", r.snippet)
+        assertEquals("bike", r.snippet.substring(r.highlights[0]))
+    }
 }

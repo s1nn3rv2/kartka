@@ -97,11 +97,14 @@ private fun snippet(n: IndexedNote, terms: List<String>): SearchResult {
     if (first == null) return SearchResult(n.meta, n.text.take(120).replace('\n', ' '), emptyList())
     val start = (first - 40).coerceAtLeast(0).let { s -> n.text.lastIndexOf(' ', s).takeIf { it >= 0 && first - it < 60 }?.plus(1) ?: s }
     val end = (start + 140).coerceAtMost(n.text.length)
-    val snippet = n.text.substring(start, end).replace('\n', ' ').replace('\t', ' ') // 1:1, so highlights stay aligned
-    val norm = n.normText.substring(start, end)
+    // Shown as plain text (no list markers, link brackets or heading hashes), lines joined like note previews;
+    // matches are found again in that cleaned text.
+    val snippet = (if (start > 0) "…" else "") +
+        n.text.substring(start, end).lines().map(::plainLine).filter { it.isNotEmpty() }.joinToString(" · ")
+    val norm = normalize(snippet)
     val highlights = terms.flatMap { t ->
         if (t.isEmpty()) emptyList() else generateSequence(norm.indexOf(t).takeIf { it >= 0 }) { i -> norm.indexOf(t, i + t.length).takeIf { it >= 0 } }
             .map { it until it + t.length }.toList()
     }
-    return SearchResult(n.meta, (if (start > 0) "…" else "") + snippet, highlights.map { if (start > 0) (it.first + 1)..(it.last + 1) else it })
+    return SearchResult(n.meta, snippet, highlights)
 }

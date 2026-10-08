@@ -695,7 +695,7 @@ private fun NoteCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it, max = 280) }.orEmpty() }
+    val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it, max = 280, title = meta.title) }.orEmpty() }
     val colors = MaterialTheme.colorScheme
     val shape = MaterialTheme.shapes.large
     val container by animateColorAsState(if (selected == true) colors.secondaryContainer else colors.surfaceContainer, MaterialTheme.motionScheme.defaultEffectsSpec())
@@ -762,7 +762,7 @@ private fun NoteRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it) }.orEmpty() }
+    val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it, title = meta.title) }.orEmpty() }
     val colors = MaterialTheme.colorScheme
     val container by animateColorAsState(if (selected == true) colors.secondaryContainer else colors.surfaceContainer, MaterialTheme.motionScheme.defaultEffectsSpec())
     SegmentedListItem(
@@ -794,7 +794,9 @@ private fun NoteRow(
 }
 
 private fun relativeTime(time: Long): String =
-    if (age(time) == Age.TODAY) {
+    if (System.currentTimeMillis() - time < DateUtils.MINUTE_IN_MILLIS) {
+        "Just now"
+    } else if (age(time) == Age.TODAY) {
         DateUtils.getRelativeTimeSpanString(time, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
     } else {
         DateUtils.getRelativeTimeSpanString(time, System.currentTimeMillis(), DateUtils.DAY_IN_MILLIS, DateUtils.FORMAT_ABBREV_ALL).toString()

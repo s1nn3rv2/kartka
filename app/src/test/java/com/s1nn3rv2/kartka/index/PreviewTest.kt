@@ -52,4 +52,10 @@ class PreviewTest {
         assertEquals(5, textStats("# Zażółć\n- **gęślą** jaźń, it's [[x]]").words)
         assertEquals(2, textStats("word ".repeat(400)).readingMinutes)
     }
+
+    // A heading that only repeats the title isn't shown twice on the card; a different first line still is.
+    @Test fun skipsTitleHeading() {
+        assertEquals("Body", preview("# Physics notes\nBody", title = "Physics notes"))
+        assertEquals("Project sync · Body", preview("# Project sync\nBody", title = "Meeting notes"))
+    }
 }
