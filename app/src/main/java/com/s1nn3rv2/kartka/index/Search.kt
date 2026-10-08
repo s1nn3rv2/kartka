@@ -59,17 +59,22 @@ class IndexedNote(val meta: NoteMeta, val text: String) {
 data class SearchResult(val meta: NoteMeta, val snippet: String, val highlights: List<IntRange>)
 
 /**
- * Ranks title matches above content matches. Every word of the query must appear (in the title or the text);
- * `tag:name` words filter by tag instead.
+ * Ranks title matches above content matches. Every word of the query must appear (in the title or the text).
+ * `#name` words filter by tag, matching tags that start with what's typed so far; `tag:name` (from tapping a tag)
+ * matches that tag exactly, nested tags like `name/sub` included.
  */
 fun search(notes: Collection<IndexedNote>, query: String, limit: Int = 100): List<SearchResult> {
     val words = query.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
     if (words.isEmpty()) return emptyList()
-    val tagFilters = words.filter { it.startsWith("tag:", ignoreCase = true) }.map { it.drop(4).removePrefix("#").lowercase() }
-    val terms = words.filterNot { it.startsWith("tag:", ignoreCase = true) }.map(::normalize)
+    val exactTags = words.filter { it.startsWith("tag:", ignoreCase = true) }.map { it.drop(4).removePrefix("#").lowercase() }
+    val typedTags = words.filter { it.length > 1 && it[0] == '#' }.map { it.drop(1).lowercase() }
+    val terms = words.filterNot { it.startsWith("tag:", ignoreCase = true) || (it.length > 1 && it[0] == '#') }.map(::normalize)
+    // A search for tags only shows each note around where the tag appears.
+    val snippetTerms = terms.ifEmpty { (typedTags + exactTags).map { normalize("#$it") } }
 
     return notes.asSequence()
-        .filter { n -> tagFilters.all { t -> n.tags.any { it == t || it.startsWith("$t/") } } }
+        .filter { n -> exactTags.all { t -> n.tags.any { it == t || it.startsWith("$t/") } } }
+        .filter { n -> typedTags.all { t -> n.tags.any { it.startsWith(t) } } }
         .mapNotNull { n ->
             if (!terms.all { n.normTitle.contains(it) || n.normText.contains(it) }) return@mapNotNull null
             val score = terms.sumOf { t ->
@@ -83,7 +88,7 @@ fun search(notes: Collection<IndexedNote>, query: String, limit: Int = 100): Lis
         }
         .sortedWith(compareByDescending<Pair<Int, IndexedNote>> { it.first }.thenByDescending { it.second.meta.modified })
         .take(limit)
-        .map { (_, n) -> snippet(n, terms) }
+        .map { (_, n) -> snippet(n, snippetTerms) }
         .toList()
 }
 

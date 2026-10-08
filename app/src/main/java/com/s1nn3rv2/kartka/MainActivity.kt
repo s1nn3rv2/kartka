@@ -229,12 +229,14 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
     }
 
     val layout by app.settings.layout.state.collectAsStateWithLifecycle()
+    val sort by app.settings.sort.state.collectAsStateWithLifecycle()
     SlideStack(stack) { route ->
         when (route) {
             Route.Home -> {
                 HomeScreen(
                     notes = notes,
                     layout = layout,
+                    sort = sort,
                     folder = null,
                     onOpenNote = { openNote(it) },
                     onOpenFolder = { stack.push(Route.Folder(it)) },
@@ -250,6 +252,7 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
                 HomeScreen(
                     notes = notes,
                     layout = layout,
+                    sort = sort,
                     folder = route.path,
                     onOpenNote = { openNote(it) },
                     onOpenFolder = { stack.push(Route.Folder(it)) },

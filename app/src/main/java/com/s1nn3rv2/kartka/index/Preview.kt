@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.index
 
+import com.s1nn3rv2.kartka.SortOrder
+import com.s1nn3rv2.kartka.storage.NoteMeta
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -39,5 +41,26 @@ fun age(modified: Long, today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneI
         days < 7 -> Age.WEEK
         days < 30 -> Age.MONTH
         else -> Age.EARLIER
+    }
+}
+
+// Accent-free and case-free first (Łódź sorts with L, Żaba with Z on any phone language), then exact title.
+private val byName: Comparator<NoteMeta> = compareBy({ normalize(it.title) }, { it.title })
+
+/**
+ * Pinned notes first, then the rest: grouped by age when sorted by last edit (notes arrive newest first), or in one
+ * alphabetical group. [restLabel] names the rest instead of age groups (folder screens).
+ */
+fun groupNotes(all: List<NoteMeta>, pins: Set<String>, sort: SortOrder, restLabel: String?): List<Pair<String, List<NoteMeta>>> {
+    val (pinned, rest) = all.partition { it.path in pins }
+    fun ordered(items: List<NoteMeta>) = if (sort == SortOrder.NAME) items.sortedWith(byName) else items
+    return buildList {
+        if (pinned.isNotEmpty()) add("Pinned" to ordered(pinned))
+        when {
+            rest.isEmpty() -> Unit
+            restLabel != null -> add(restLabel to ordered(rest))
+            sort == SortOrder.NAME -> add("All notes" to ordered(rest))
+            else -> rest.groupBy { age(it.modified) }.toSortedMap().forEach { (age, items) -> add(age.label to items) }
+        }
     }
 }

@@ -51,4 +51,14 @@ class SearchTest {
         assertTrue(r.highlights.isNotEmpty())
         assertEquals("hooks", r.snippet.substring(r.highlights[0]))
     }
+
+    // Typing #tag in the search bar lists the notes with that tag, already while the tag is half typed,
+    // and shows each note around where the tag is.
+    @Test fun hashSearchesTags() {
+        assertEquals(listOf("Plan treningowy"), search(notes, "#zdrowie").map { it.meta.title })
+        assertEquals(listOf("Plan treningowy"), search(notes, "#zdr").map { it.meta.title })
+        val r = search(notes, "#zdrowie").single()
+        assertTrue(r.snippet.substring(r.highlights[0]).startsWith("#zdrowie"))
+        assertTrue(search(notes, "#nosuchtag").isEmpty())
+    }
 }

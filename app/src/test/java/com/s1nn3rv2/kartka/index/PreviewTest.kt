@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.index
 
+import com.s1nn3rv2.kartka.storage.NoteMeta
+import com.s1nn3rv2.kartka.SortOrder
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -33,5 +35,15 @@ class PreviewTest {
         assertEquals(Age.WEEK, age(at(today.minusDays(6)), today, ZoneOffset.UTC))
         assertEquals(Age.MONTH, age(at(today.minusDays(20)), today, ZoneOffset.UTC))
         assertEquals(Age.EARLIER, age(at(today.minusDays(40)), today, ZoneOffset.UTC))
+    }
+
+    // Pinned notes always come first; the rest follow the chosen order, with Polish letters sorted where they belong.
+    @Test fun groupsPinnedFirst() {
+        val now = System.currentTimeMillis()
+        val notes = listOf("Żaba.md", "Ala.md", "Łódź.md", "Zebra.md").mapIndexed { i, p -> NoteMeta(p, now - i, 0) }
+        val byName = groupNotes(notes, pins = setOf("Zebra.md"), SortOrder.NAME, restLabel = null)
+        assertEquals(listOf("Pinned" to listOf("Zebra"), "All notes" to listOf("Ala", "Łódź", "Żaba")), byName.map { (l, n) -> l to n.map { it.title } })
+        val byEdit = groupNotes(notes, pins = emptySet(), SortOrder.EDITED, restLabel = "Notes")
+        assertEquals(listOf("Notes" to listOf("Żaba", "Ala", "Łódź", "Zebra")), byEdit.map { (l, n) -> l to n.map { it.title } })
     }
 }

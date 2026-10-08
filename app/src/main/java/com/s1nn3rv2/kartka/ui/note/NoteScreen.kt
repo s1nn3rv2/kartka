@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Share
 import android.content.Intent
 import com.s1nn3rv2.kartka.index.normalize
@@ -329,6 +330,15 @@ fun NoteScreen(
                                     },
                                 )
                             }
+                            val pinned = session.path in app.notes.pins.collectAsStateWithLifecycle().value
+                            DropdownMenuItem(
+                                text = { Text(if (pinned) "Unpin" else "Pin") },
+                                leadingIcon = { Icon(if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    app.notes.setPinned(listOf(session.path), !pinned)
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Backlinks") },
                                 leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) },

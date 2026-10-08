@@ -1,5 +1,9 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.filled.PushPin
+import com.s1nn3rv2.kartka.SortOrder
+import com.s1nn3rv2.kartka.index.groupNotes
 import com.s1nn3rv2.kartka.LocalAppName
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.MutableState
@@ -124,6 +128,7 @@ fun HomeScreen(
     notes: Notes,
     folder: String?,
     layout: NoteLayout,
+    sort: SortOrder,
     onOpenNote: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
     onNewNote: (folder: String) -> Unit,
@@ -147,10 +152,10 @@ fun HomeScreen(
                 FolderDrawer(tree, onOpenFolder = onOpenFolder, onOpenSettings = onOpenSettings, onOpenHidden = onOpenHidden)
             },
         ) {
-            Home(notes, state, layout, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch, snackbar)
+            Home(notes, state, layout, sort, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch, snackbar)
         }
     } else {
-        Folder(notes, state, layout, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {}, snackbar)
+        Folder(notes, state, layout, sort, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {}, snackbar)
     }
 }
 
@@ -160,6 +165,7 @@ private fun Home(
     notes: Notes,
     state: NotesState,
     layout: NoteLayout,
+    sort: SortOrder,
     onOpenNote: (String) -> Unit,
     onMenu: () -> Unit,
     onNewNote: () -> Unit,
@@ -177,7 +183,7 @@ private fun Home(
             searchBarState = search,
             colors = colors.searchBarColors.inputFieldColors,
             onSearch = { },
-            placeholder = { Text("Search notes") },
+            placeholder = { Text("Search notes or #tags") },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
         )
     }
@@ -189,7 +195,7 @@ private fun Home(
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
         topBar = {
-            if (selection.active) return@Scaffold SelectionBar(selection) { state.notes.map { it.path } }
+            if (selection.active) return@Scaffold SelectionBar(selection, notes) { state.notes.map { it.path } }
             AppBarWithSearch(
                 state = search,
                 inputField = inputField,
@@ -213,10 +219,13 @@ private fun Home(
             if (!state.loaded) {
                 ContainedLoadingIndicator(Modifier.align(Alignment.Center))
             } else {
-                val groups = remember(state.notes) { state.notes.groupBy { age(it.modified) }.toSortedMap() }
+                val pins by notes.pins.collectAsStateWithLifecycle()
+                val groups = remember(state.notes, pins, sort) { groupNotes(state.notes, pins, sort, restLabel = null) }
+                // A pin added while at the top would appear above the first visible row; keep the top in view.
+                LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
                 NoteGrid(layout, list, padding) {
                     if (state.notes.isEmpty()) fullLine("empty") { Empty("No notes yet. Tap + to write one.") }
-                    for ((age, items) in groups) noteGroup(age.label, items, layout, notes, state.indexVersion, showFolder = true, selection, onOpenNote)
+                    for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = true, selection, onOpenNote)
                 }
             }
         }
@@ -229,6 +238,7 @@ private fun Folder(
     notes: Notes,
     state: NotesState,
     layout: NoteLayout,
+    sort: SortOrder,
     folder: String,
     onOpenNote: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
@@ -242,14 +252,17 @@ private fun Folder(
     val subfolders = remember(state.folders, folder) {
         state.folders.filter { it.isNotEmpty() && it.substringBeforeLast('/', "") == folder }.sortedBy { it.lowercase() }
     }
+    val pins by notes.pins.collectAsStateWithLifecycle()
+    val groups = remember(here, pins, sort) { groupNotes(here, pins, sort, restLabel = "Notes") }
     val list = rememberLazyStaggeredGridState()
+    LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
     val selection = rememberSelection(notes, state, snackbar)
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
         topBar = {
-            if (selection.active) return@Scaffold SelectionBar(selection) { here.map { it.path } }
+            if (selection.active) return@Scaffold SelectionBar(selection, notes) { here.map { it.path } }
             LargeFlexibleTopAppBar(
                 title = { Text(folder.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 subtitle = { Text(if (here.size == 1) "1 note" else "${here.size} notes") },
@@ -277,7 +290,7 @@ private fun Folder(
                     }
                 }
                 if (here.isEmpty() && subfolders.isEmpty()) fullLine("empty") { Empty("Nothing here yet. Tap + to write a note in this folder.") }
-                if (here.isNotEmpty()) noteGroup("Notes", here, layout, notes, state.indexVersion, showFolder = false, selection, onOpenNote)
+                for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = false, selection, onOpenNote)
             }
         }
     }
@@ -400,7 +413,9 @@ private fun rememberSelection(notes: Notes, state: NotesState, snackbar: Snackba
 /** Replaces the top bar while selecting: how many, select all, and move to trash. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SelectionBar(selection: Selection, all: () -> List<String>) {
+private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<String>) {
+    val pins by notes.pins.collectAsStateWithLifecycle()
+    val allPinned = pins.containsAll(selection.paths)
     TopAppBar(
         title = { Text("${selection.paths.size} selected") },
         navigationIcon = {
@@ -411,6 +426,15 @@ private fun SelectionBar(selection: Selection, all: () -> List<String>) {
         actions = {
             IconButton(onClick = { selection.set(all().toSet()) }, shapes = IconButtonDefaults.shapes()) {
                 Icon(Icons.Filled.SelectAll, contentDescription = "Select all")
+            }
+            IconButton(
+                onClick = {
+                    notes.setPinned(selection.paths, !allPinned)
+                    selection.set(emptySet())
+                },
+                shapes = IconButtonDefaults.shapes(),
+            ) {
+                Icon(if (allPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, contentDescription = if (allPinned) "Unpin" else "Pin")
             }
             IconButton(onClick = selection.delete, shapes = IconButtonDefaults.shapes()) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Move to trash")

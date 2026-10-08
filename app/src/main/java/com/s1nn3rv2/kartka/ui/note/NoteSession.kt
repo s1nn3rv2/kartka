@@ -159,7 +159,9 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         scope.launch {
             fileLock.withLock {
                 saveLocked()
+                val old = path
                 path = withContext(Dispatchers.IO) { repo.rename(path, title) }
+                notes.pathChanged(old, path)
             }
             notes.refreshSoon()
         }
@@ -171,7 +173,9 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         scope.launch {
             fileLock.withLock {
                 saveLocked()
+                val old = path
                 path = withContext(Dispatchers.IO) { repo.move(path, folder) }
+                notes.pathChanged(old, path)
             }
             notes.refreshSoon()
         }

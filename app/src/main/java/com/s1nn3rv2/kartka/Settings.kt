@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class NoteLayout { LIST, CARDS }
 
+enum class SortOrder(val label: String) { EDITED("Last edited"), NAME("Name") }
+
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 
 enum class TextSize(val label: String, val scale: Float) { SMALL("Small", 0.9f), DEFAULT("Default", 1f), LARGE("Large", 1.15f) }
@@ -38,6 +40,7 @@ class Settings(context: Context) {
 
     /** How note lists are shown: rows or a grid of cards. */
     val layout = Pref("layout", NoteLayout.LIST, NoteLayout::valueOf)
+    val sort = Pref("sort", SortOrder.EDITED, SortOrder::valueOf)
     val theme = Pref("theme", ThemeMode.SYSTEM, ThemeMode::valueOf)
     /** Material You: colors from the wallpaper instead of Material's standard scheme. */
     val dynamicColor = Pref("dynamicColor", true, String::toBooleanStrict)

@@ -168,7 +168,7 @@ class Notes(context: Context) {
     suspend fun emptyTrash() = io { repo -> repo.listHidden(NotesRepository.TRASH).forEach { repo.delete(it.path) } }
 
     /** Moves a note into [folder] (a scratch note "kept" moves out of the scratch folder); returns the new path. */
-    suspend fun move(path: String, folder: String): String? = io { it.move(path, folder) }
+    suspend fun move(path: String, folder: String): String? = io { it.move(path, folder) }?.also { pathChanged(path, it) }
 
     private suspend fun <T> io(block: (NotesRepository) -> T): T? =
         withContext(Dispatchers.IO) { repository?.let(block) }.also { refreshSoon() }
@@ -191,6 +191,31 @@ class Notes(context: Context) {
     fun folds(path: String): Set<String>? = foldPrefs.getStringSet(path, null)
 
     fun setFolds(path: String, keys: Set<String>) = foldPrefs.edit().putStringSet(path, keys).apply()
+
+    // Pins live only in the app's private storage, never in the notes folder.
+    private val pinPrefs = context.getSharedPreferences("pins", Context.MODE_PRIVATE)
+    private val _pins = MutableStateFlow(pinPrefs.getStringSet("pins", null).orEmpty().toSet())
+    /** Paths of pinned notes, shown first in lists. */
+    val pins: StateFlow<Set<String>> = _pins.asStateFlow()
+
+    fun setPinned(paths: Collection<String>, pinned: Boolean) {
+        val next = if (pinned) _pins.value + paths else _pins.value - paths.toSet()
+        _pins.value = next
+        pinPrefs.edit().putStringSet("pins", next).apply()
+    }
+
+    /** A note was renamed or moved: its pin and remembered folds follow it. */
+    fun pathChanged(old: String, new: String) {
+        if (old == new) return
+        if (old in _pins.value) {
+            setPinned(listOf(old), false)
+            setPinned(listOf(new), true)
+        }
+        folds(old)?.let {
+            setFolds(new, it)
+            foldPrefs.edit().remove(old).apply()
+        }
+    }
 
     /** Where `[[target]]` in the note at [from] leads, if that note exists. */
     fun resolveLink(target: String, from: String): String? =

@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.settings
 
+import com.s1nn3rv2.kartka.SortOrder
 import com.s1nn3rv2.kartka.setAppName
 import com.s1nn3rv2.kartka.AppName
 import com.s1nn3rv2.kartka.LocalAppName
@@ -73,6 +74,7 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
     val context = LocalContext.current
     val layout by settings.layout.state.collectAsStateWithLifecycle()
     val theme by settings.theme.state.collectAsStateWithLifecycle()
+    val sort by settings.sort.state.collectAsStateWithLifecycle()
     val dynamicColor by settings.dynamicColor.state.collectAsStateWithLifecycle()
     val appName by settings.appName.state.collectAsStateWithLifecycle()
     val textSize by settings.textSize.state.collectAsStateWithLifecycle()
@@ -127,6 +129,8 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                         listOf(NoteLayout.LIST to "List", NoteLayout.CARDS to "Cards"), layout, { settings.layout.value = it },
                         icons = listOf(Icons.Outlined.ViewAgenda, Icons.Outlined.GridView),
                     )
+                    Text("Sort notes by", style = MaterialTheme.typography.titleMedium)
+                    ChoiceToggle(SortOrder.entries.map { it to it.label }, sort, { settings.sort.value = it })
                     Text("Theme", style = MaterialTheme.typography.titleMedium)
                     ChoiceToggle(ThemeMode.entries.map { it to it.label }, theme, { settings.theme.value = it })
                     Row(verticalAlignment = Alignment.CenterVertically) {
