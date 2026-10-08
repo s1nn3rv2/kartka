@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -73,16 +75,25 @@ private fun App(app: KartkaApp) {
     }
     // ponytail: the back stack is not kept across process death; save it once deep links or restore matter.
     val backStack = remember { mutableStateListOf<Route>(Route.Home) }
-    fun openNote(path: String, isNew: Boolean = false) = scope.launch {
-        notes.prepare(path)
-        backStack += Route.Note(path, isNew)
+    var opening by remember { mutableStateOf(false) }
+    fun openNote(path: String, isNew: Boolean = false) {
+        if (opening) return // a quick double tap must not open the note twice
+        opening = true
+        scope.launch {
+            notes.prepare(path)
+            backStack += Route.Note(path, isNew)
+            opening = false
+        }
     }
     val activity = LocalActivity.current
     // The back stack must never become empty: back on the last screen leaves the app instead.
     val back = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) else activity?.finish() }
     // Settings-style horizontal slides: a new screen slides in over the old one, which shifts a little to the left;
     // going back (and the predictive back gesture, following the finger) reverses it, with the leaving screen on top.
-    val slide = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+    // Not the expressive spring: predictive back drives this animation from the finger, and a bouncy spring
+    // overshoots and swings back, so a held swipe made the page wobble the "wrong" way. Full-screen motion uses a
+    // smooth, monotonic curve; bouncy springs stay for small elements like the FAB.
+    val slide = tween<IntOffset>(durationMillis = 400, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
     NavDisplay(
         backStack = backStack,
         onBack = { back() },
