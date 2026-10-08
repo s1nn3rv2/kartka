@@ -48,7 +48,10 @@ class Settings(context: Context) {
     val hideInRecents = Pref("hideInRecents", false, String::toBooleanStrict)
 }
 
-/** Switches the launcher entry to [name]: exactly one alias is enabled. The app keeps running. */
+/**
+ * Switches the launcher entry to [name]: exactly one alias is enabled, the usual way apps offer other names or icons.
+ * The app keeps running; launchers differ in whether a home screen icon follows the switch or is dropped.
+ */
 fun Settings.setAppName(context: Context, name: AppName) {
     appName.value = name
     val pm = context.packageManager

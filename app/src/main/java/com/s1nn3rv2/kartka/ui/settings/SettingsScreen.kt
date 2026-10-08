@@ -143,7 +143,7 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                     Text("App name", style = MaterialTheme.typography.titleMedium)
                     ChoiceToggle(AppName.entries.map { it to it.label }, appName, { settings.setAppName(context, it) })
                     Text(
-                        "Changing it removes the icon from the home screen; add it again from the app list.",
+                        "Some launchers drop the home screen icon when the name changes; add it again from the app list.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
