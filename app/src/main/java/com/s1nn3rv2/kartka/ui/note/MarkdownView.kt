@@ -67,7 +67,9 @@ import com.s1nn3rv2.kartka.markdown.Inline
 import com.s1nn3rv2.kartka.markdown.InlineStyle
 import com.s1nn3rv2.kartka.markdown.MdBlock
 import com.s1nn3rv2.kartka.markdown.InlineSpan
+import com.s1nn3rv2.kartka.markdown.CodeHighlight
 import com.s1nn3rv2.kartka.markdown.MdCallout
+import com.s1nn3rv2.kartka.markdown.Token
 import com.s1nn3rv2.kartka.markdown.MdFootnote
 import com.s1nn3rv2.kartka.markdown.MdImage
 import com.s1nn3rv2.kartka.markdown.MdCode
@@ -228,7 +230,7 @@ private fun Block(
         is MdCode -> Column(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh).padding(12.dp)) {
             block.language?.let { Text(it, style = type.labelSmall, color = colors.onSurfaceVariant) }
             Text(
-                block.code,
+                highlighted(block),
                 style = type.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 softWrap = false,
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -255,6 +257,26 @@ private fun Block(
         }
 
         is MdRule -> HorizontalDivider(modifier.padding(vertical = 8.dp), color = colors.outlineVariant)
+    }
+}
+
+/** Code with syntax colors from the theme. */
+@Composable
+private fun highlighted(block: MdCode): AnnotatedString {
+    val colors = MaterialTheme.colorScheme
+    return remember(block, colors) {
+        buildAnnotatedString {
+            append(block.code)
+            for (t in CodeHighlight.tokens(block.code, block.language)) {
+                val style = when (t.token) {
+                    Token.KEYWORD -> SpanStyle(color = colors.primary)
+                    Token.STRING -> SpanStyle(color = colors.tertiary)
+                    Token.NUMBER -> SpanStyle(color = colors.secondary)
+                    Token.COMMENT -> SpanStyle(color = colors.onSurfaceVariant, fontStyle = FontStyle.Italic)
+                }
+                addStyle(style, t.start, t.end)
+            }
+        }
     }
 }
 

@@ -21,6 +21,7 @@ data class EditorColors(
     val text: Int,
     val dim: Int,
     val primary: Int,
+    val secondary: Int,
     val tertiary: Int,
     val codeBackground: Int,
     val inlineCodeBackground: Int,
@@ -62,6 +63,10 @@ fun createSpan(r: StyleRange, style: EditorStyle): MdSpan = when (r.kind) {
     Kind.TASK_DONE -> TaskDoneSpan(r, style)
     Kind.TAG -> ColorSpan(r, style) { it.tertiary }
     Kind.HIGHLIGHT -> HighlightSpan(r, style)
+    Kind.CODE_KEYWORD -> ColorSpan(r, style) { it.primary }
+    Kind.CODE_STRING -> ColorSpan(r, style) { it.tertiary }
+    Kind.CODE_NUMBER -> ColorSpan(r, style) { it.secondary }
+    Kind.CODE_COMMENT -> ColorSpan(r, style) { it.dim }
 }
 
 class ColorSpan(override val spec: StyleRange, private val style: EditorStyle, private val color: (EditorColors) -> Int) :

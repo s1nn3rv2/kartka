@@ -40,6 +40,13 @@ class StyleBuilderTest {
         assertEquals(listOf("[^1]:"), texts(md, Kind.MARKER))
     }
 
+    // Code inside fences is colored at its exact place, also inside indented Logseq bullets.
+    @Test fun codeTokens() {
+        val md = "# H\n\t- ```js\n\t  const a = 1;\n\t  ```\n"
+        assertEquals(listOf("const"), texts(md, Kind.CODE_KEYWORD))
+        assertEquals(listOf("1"), texts(md, Kind.CODE_NUMBER))
+    }
+
     @Test fun tableSyntaxIsDimmed() {
         val md = "| a | b |\n|---|---|\n| 1 | 2 |\n"
         assertEquals(6 + 1, texts(md, Kind.MARKER).size)

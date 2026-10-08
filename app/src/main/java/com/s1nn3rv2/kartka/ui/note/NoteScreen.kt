@@ -522,6 +522,7 @@ private fun editorColors(): EditorColors {
         text = scheme.onSurface.toArgb(),
         dim = scheme.onSurfaceVariant.copy(alpha = 0.7f).toArgb(),
         primary = scheme.primary.toArgb(),
+        secondary = scheme.secondary.toArgb(),
         tertiary = scheme.tertiary.toArgb(),
         codeBackground = scheme.surfaceContainerHigh.toArgb(),
         inlineCodeBackground = scheme.surfaceContainerHighest.toArgb(),

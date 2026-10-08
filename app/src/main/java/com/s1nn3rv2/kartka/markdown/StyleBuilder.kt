@@ -24,7 +24,8 @@ import org.commonmark.node.ThematicBreak
 
 /** What a range of source text is, for Edit-mode coloring. Markdown symbols stay visible, only dimmed. */
 enum class Kind {
-    MARKER, HEADING, STRONG, EMPH, STRIKE, INLINE_CODE, LINK, CODE_BLOCK, QUOTE, LIST_MARKER, TASK_DONE, TAG, HIGHLIGHT
+    MARKER, HEADING, STRONG, EMPH, STRIKE, INLINE_CODE, LINK, CODE_BLOCK, QUOTE, LIST_MARKER, TASK_DONE, TAG, HIGHLIGHT,
+    CODE_KEYWORD, CODE_STRING, CODE_NUMBER, CODE_COMMENT,
 }
 
 /** [level]: heading level, otherwise 0. */
@@ -142,7 +143,17 @@ object StyleBuilder {
             visitChildren(item)
         }
 
-        override fun visit(block: FencedCodeBlock) = codeBlock(block)
+        override fun visit(block: FencedCodeBlock) {
+            codeBlock(block)
+            // The lines between the fences, highlighted as written (indentation included, so offsets stay exact).
+            val spans = block.sourceSpans
+            val last = if (block.closingFenceLength != null) spans.size - 1 else spans.size
+            if (last <= 1) return
+            val start = spans[1].inputIndex
+            for (t in CodeHighlight.tokens(text.substring(start, spans[last - 1].end), block.info)) {
+                add(start + t.start, start + t.end, codeKinds[t.token.ordinal])
+            }
+        }
         override fun visit(block: IndentedCodeBlock) = codeBlock(block)
 
         fun codeBlock(block: Node) {
@@ -173,6 +184,8 @@ object StyleBuilder {
         }
     }
 }
+
+private val codeKinds = Token.entries.map { Kind.valueOf("CODE_${it.name}") }
 
 /** Document order, with ties broken on every field so equal parses give equal lists. */
 val rangeOrder: Comparator<StyleRange> = compareBy({ it.start }, { it.end }, { it.kind.ordinal }, { it.level })
