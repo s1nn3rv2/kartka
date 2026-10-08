@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka
 
+import androidx.compose.runtime.CompositionLocalProvider
 import com.s1nn3rv2.kartka.ui.LockScreen
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Modifier
@@ -133,8 +134,11 @@ class MainActivity : ComponentActivity() {
                 val background = MaterialTheme.colorScheme.background.toArgb()
                 SideEffect { window.setBackgroundDrawable(ColorDrawable(background)) }
                 val locked by app.lock.locked.collectAsStateWithLifecycle()
-                Box(if (locked) Modifier.clearAndSetSemantics {} else Modifier) { App(app, pendingIntent) }
-                if (locked) LockScreen(onUnlock = { app.lock.locked.value = false })
+                val appName by app.settings.appName.state.collectAsStateWithLifecycle()
+                CompositionLocalProvider(LocalAppName provides appName.label) {
+                    Box(if (locked) Modifier.clearAndSetSemantics {} else Modifier) { App(app, pendingIntent) }
+                    if (locked) LockScreen(onUnlock = { app.lock.locked.value = false })
+                }
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui
 
+import com.s1nn3rv2.kartka.LocalAppName
 import android.content.Context
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK
@@ -47,10 +48,11 @@ fun LockScreen(onUnlock: () -> Unit) {
     val context = LocalContext.current
     val activity = LocalActivity.current
     val unlock by rememberUpdatedState(onUnlock)
+    val name = LocalAppName.current
     fun prompt() {
         if (!canLock(context)) return unlock()
         BiometricPrompt.Builder(context)
-            .setTitle("Unlock Kartka")
+            .setTitle("Unlock $name")
             .setAllowedAuthenticators(AUTHENTICATORS)
             .build()
             .authenticate(CancellationSignal(), context.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
@@ -69,7 +71,7 @@ fun LockScreen(onUnlock: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
-        Text("Kartka is locked", style = MaterialTheme.typography.titleLargeEmphasized, color = MaterialTheme.colorScheme.onBackground)
+        Text("$name is locked", style = MaterialTheme.typography.titleLargeEmphasized, color = MaterialTheme.colorScheme.onBackground)
         Button(onClick = ::prompt, shapes = ButtonDefaults.shapes()) { Text("Unlock") }
     }
 }

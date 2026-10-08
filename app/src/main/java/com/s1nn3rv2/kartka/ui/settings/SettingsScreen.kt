@@ -1,5 +1,8 @@
 package com.s1nn3rv2.kartka.ui.settings
 
+import com.s1nn3rv2.kartka.setAppName
+import com.s1nn3rv2.kartka.AppName
+import com.s1nn3rv2.kartka.LocalAppName
 import androidx.compose.ui.Alignment
 import com.s1nn3rv2.kartka.ui.canLock
 import com.s1nn3rv2.kartka.LockAfter
@@ -71,6 +74,7 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
     val layout by settings.layout.state.collectAsStateWithLifecycle()
     val theme by settings.theme.state.collectAsStateWithLifecycle()
     val dynamicColor by settings.dynamicColor.state.collectAsStateWithLifecycle()
+    val appName by settings.appName.state.collectAsStateWithLifecycle()
     val textSize by settings.textSize.state.collectAsStateWithLifecycle()
     val lock by settings.lock.state.collectAsStateWithLifecycle()
     val lockAfter by settings.lockAfter.state.collectAsStateWithLifecycle()
@@ -136,6 +140,13 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                         }
                         Switch(checked = dynamicColor, onCheckedChange = { settings.dynamicColor.value = it })
                     }
+                    Text("App name", style = MaterialTheme.typography.titleMedium)
+                    ChoiceToggle(AppName.entries.map { it to it.label }, appName, { settings.setAppName(context, it) })
+                    Text(
+                        "Changing it removes the icon from the home screen; add it again from the app list.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Text("Text size in notes", style = MaterialTheme.typography.titleMedium)
                     ChoiceToggle(TextSize.entries.map { it to it.label }, textSize, { settings.textSize.value = it })
                 }
@@ -166,9 +177,9 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                     shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
                     colors = colors,
                     leadingContent = { Icon(Icons.Outlined.Fingerprint, contentDescription = null) },
-                    supportingContent = { Text("Fingerprint or screen lock to open Kartka") },
+                    supportingContent = { Text("Fingerprint or screen lock to open ${LocalAppName.current}") },
                     trailingContent = { Switch(checked = lock, onCheckedChange = null) },
-                ) { Text("Lock Kartka") }
+                ) { Text("Lock ${LocalAppName.current}") }
             }
             if (lock) {
                 item {

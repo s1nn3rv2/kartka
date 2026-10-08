@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.share
 
+import com.s1nn3rv2.kartka.LocalAppName
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -56,7 +57,7 @@ fun ShareSheet(
     val colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
-            Text("Save to Kartka", style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(start = 8.dp))
+            Text("Save to ${LocalAppName.current}", style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(start = 8.dp))
             Text(
                 text,
                 style = MaterialTheme.typography.bodyMedium,

@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.onboarding
 
+import com.s1nn3rv2.kartka.LocalAppName
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
@@ -58,10 +59,10 @@ fun OnboardingScreen(notes: Notes, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Kartka", style = MaterialTheme.typography.displaySmall)
+            Text(LocalAppName.current, style = MaterialTheme.typography.displaySmall)
             val message = when {
-                !hasAccess -> "Kartka works directly on a folder of markdown files. It needs file access to read and save them."
-                unreadable != null -> "Kartka can't read $unreadable yet. On GrapheneOS with Storage Scopes, open the app's settings, " +
+                !hasAccess -> "${LocalAppName.current} works directly on a folder of markdown files. It needs file access to read and save them."
+                unreadable != null -> "${LocalAppName.current} can't read $unreadable yet. On GrapheneOS with Storage Scopes, open the app's settings, " +
                     "go to Permissions, then Files, and add this folder as a scope."
                 else -> "Pick the folder with your notes, for example the one Syncthing syncs."
             }

@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import com.s1nn3rv2.kartka.LocalAppName
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.MutableState
 import androidx.compose.material3.SnackbarResult
@@ -592,7 +593,7 @@ private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpe
     }
     ModalDrawerSheet {
         Text(
-            "Kartka",
+            LocalAppName.current,
             style = MaterialTheme.typography.titleLargeEmphasized,
             modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 16.dp),
         )
