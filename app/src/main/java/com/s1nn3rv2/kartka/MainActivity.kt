@@ -7,7 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -26,6 +29,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import com.s1nn3rv2.kartka.ui.home.HomeScreen
 import com.s1nn3rv2.kartka.ui.note.NoteScreen
@@ -39,6 +43,20 @@ sealed interface Route {
     data class Folder(val path: String) : Route
     /** [isNew]: just created, so it opens in Edit mode with the title field focused. */
     data class Note(val path: String, val isNew: Boolean = false) : Route
+}
+
+/**
+ * Settings-style horizontal slide. Going deeper, the new screen slides in from the right over the old one, which
+ * shifts a little left. Going back (from any edge, with the predictive gesture following the finger), the leaving
+ * screen slides right on top of the one revealed beneath it. Direction comes from back stack depth.
+ */
+private fun AnimatedContentTransitionScope<Scene<Route>>.slide(spec: FiniteAnimationSpec<IntOffset>): ContentTransform {
+    val back = targetState.previousEntries.size < initialState.previousEntries.size
+    return if (back) {
+        (slideInHorizontally(spec) { -it / 4 } togetherWith slideOutHorizontally(spec) { it }).apply { targetContentZIndex = -1f }
+    } else {
+        slideInHorizontally(spec) { it } togetherWith slideOutHorizontally(spec) { -it / 4 }
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -97,17 +115,11 @@ private fun App(app: KartkaApp) {
     NavDisplay(
         backStack = backStack,
         onBack = { back() },
-        transitionSpec = {
-            slideInHorizontally(slide) { it } togetherWith slideOutHorizontally(slide) { -it / 4 }
-        },
-        popTransitionSpec = {
-            (slideInHorizontally(slide) { -it / 4 } togetherWith slideOutHorizontally(slide) { it }).apply { targetContentZIndex = -1f }
-        },
-        // Always the same direction as a normal back, whichever screen edge the swipe starts from: following the
-        // edge made the page go left or right depending on the thumb, which read as random.
-        predictivePopTransitionSpec = {
-            (slideInHorizontally(slide) { -it / 4 } togetherWith slideOutHorizontally(slide) { it }).apply { targetContentZIndex = -1f }
-        },
+        // All three use the same direction-aware slide: on quick back swipes Navigation 3 sometimes runs the
+        // forward spec for a back navigation (seen in a screen recording), so each picks its direction itself.
+        transitionSpec = { slide(slide) },
+        popTransitionSpec = { slide(slide) },
+        predictivePopTransitionSpec = { slide(slide) },
         entryProvider = entryProvider {
             entry<Route.Home> {
                 HomeScreen(
