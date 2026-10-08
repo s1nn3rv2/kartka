@@ -6,6 +6,10 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.ScrollView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -44,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -60,7 +67,10 @@ import com.s1nn3rv2.kartka.editor.EditorColors
 import com.s1nn3rv2.kartka.editor.MarkdownEditText
 import com.s1nn3rv2.kartka.markdown.BlockBuilder
 import com.s1nn3rv2.kartka.markdown.MdBlock
+import com.s1nn3rv2.kartka.markdown.MdHeading
 import com.s1nn3rv2.kartka.markdown.MdListItem
+import com.s1nn3rv2.kartka.markdown.foldEnd
+import com.s1nn3rv2.kartka.markdown.visibleBlocks
 import com.s1nn3rv2.kartka.storage.PathRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -89,6 +99,8 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
     }
     // Null until the blocks arrive; then seeded from Logseq's collapsed:: true. Reset when the text changes shape.
     var folded by remember(path) { mutableStateOf(prepared?.blocks?.let(::initialFolds)) }
+    val listState = rememberLazyListState()
+    var showOutline by remember { mutableStateOf(false) }
     LaunchedEffect(blocks) {
         val b = blocks ?: return@LaunchedEffect
         if (folded == null || folded!!.any { it >= b.size }) {
@@ -139,6 +151,30 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
         onBack()
     }
 
+    if (showOutline) {
+        val b = blocks.orEmpty()
+        val headings = remember(b) { b.mapIndexedNotNull { i, block -> (block as? MdHeading)?.let { i to it } } }
+        OutlineSheet(
+            headings,
+            onPick = { index ->
+                showOutline = false
+                if (editing) {
+                    // Headings appear in the same order in the text, so the n-th block heading is the n-th heading range.
+                    val n = headings.indexOfFirst { it.first == index }
+                    editor?.headings()?.getOrNull(n)?.let { editor?.jumpTo(it.first) }
+                } else {
+                    val f = folded.orEmpty()
+                    // Unfold anything hiding the heading, then scroll it to the top.
+                    val open = f.filterTo(HashSet()) { it >= index || foldEnd(b, it) <= index }
+                    folded = open
+                    val position = visibleBlocks(b, open).indexOf(index)
+                    if (position >= 0) scope.launch { listState.animateScrollToItem(position) }
+                }
+            },
+            onDismiss = { showOutline = false },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -161,6 +197,11 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
                     }
                 },
                 actions = {
+                    if (blocks?.any { it is MdHeading } == true) {
+                        IconButton(onClick = { showOutline = true }, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Outline")
+                        }
+                    }
                     FilledTonalIconButton(
                         onClick = {
                             if (editing) {
@@ -208,7 +249,9 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
                             if (editing) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         editor?.setColors(colors)
                     },
-                    modifier = Modifier.fillMaxSize(),
+                    // The scroll view can draw past its box (into the navigation bar area), where the View layer
+                    // doesn't cover it; clip it so the hidden editor never shows through.
+                    modifier = Modifier.fillMaxSize().clipToBounds(),
                 )
             }
             val b = blocks
@@ -227,6 +270,7 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
                     },
                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                     contentPadding = PaddingValues(bottom = 24.dp),
+                    state = listState,
                 )
             }
             val e = editor
@@ -241,6 +285,31 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
 private fun initialFolds(blocks: List<MdBlock>) = blocks.indices.filter { (blocks[it] as? MdListItem)?.collapsed == true }.toSet()
 
 /** The note's title, edited in place in the top bar; it becomes the file name when editing ends. */
+/** The headings of the note in order; tapping one jumps to it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OutlineSheet(headings: List<Pair<Int, MdHeading>>, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            "Outline",
+            style = MaterialTheme.typography.titleLargeEmphasized,
+            modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
+        )
+        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+            items(headings, key = { it.first }) { (index, heading) ->
+                Text(
+                    heading.text.text,
+                    style = if (heading.level <= 2) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().clickable { onPick(index) }
+                        .padding(start = 24.dp + 16.dp * (heading.level - 1), end = 24.dp, top = 12.dp, bottom = 12.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun TitleField(state: TextFieldState, focus: FocusRequester, onNext: () -> Unit) {
     val style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface)

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -76,11 +78,12 @@ fun MarkdownView(
     onToggleTask: (Task) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(),
+    state: LazyListState = rememberLazyListState(),
 ) {
     val visible = remember(blocks, folded) { visibleBlocks(blocks, folded) }
     val foldable = remember(blocks) { BooleanArray(blocks.size) { canFold(blocks, it) } }
     SelectionContainer(modifier) {
-        LazyColumn(contentPadding = contentPadding) {
+        LazyColumn(state = state, contentPadding = contentPadding) {
             items(visible, key = { it }) { i ->
                 Row(Modifier.padding(start = 4.dp + IndentStep * blocks[i].indent, end = 20.dp)) {
                     FoldArrow(foldable[i], i in folded, top(blocks[i])) { onToggleFold(i) }

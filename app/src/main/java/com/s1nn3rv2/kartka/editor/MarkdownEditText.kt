@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.widget.EditText
 import com.s1nn3rv2.kartka.markdown.Edit
 import com.s1nn3rv2.kartka.markdown.Edits
+import com.s1nn3rv2.kartka.markdown.Kind
 import com.s1nn3rv2.kartka.markdown.StyleBuilder
 import com.s1nn3rv2.kartka.markdown.UndoStack
 import com.s1nn3rv2.kartka.markdown.StyleRange
@@ -97,6 +98,15 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
                 onHistoryChanged?.invoke()
             }
         })
+    }
+
+    /** Offsets and levels of the headings in the text, for the outline. */
+    fun headings(): List<Pair<Int, Int>> = ranges.filter { it.kind == Kind.HEADING }.map { it.start to it.level }
+
+    /** Puts the cursor at [offset]; the surrounding ScrollView scrolls it into view. */
+    fun jumpTo(offset: Int) {
+        requestFocus()
+        setSelection(offset.coerceIn(0, length()))
     }
 
     /** Applies a toolbar operation to the text and selection. */
