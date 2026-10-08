@@ -172,8 +172,13 @@ private fun NoteScreen(file: File, onBack: () -> Unit) {
         }
     }
     fun finishEditing() {
-        editor?.let { e -> e.text.toString().also { text = it; editorText = it } }
-        folded = null
+        val edited = editor?.text?.toString()
+        // Unchanged text means no re-parse, so the folds must stay; changed text re-parses and re-seeds them.
+        if (edited != null && edited != text) {
+            text = edited
+            editorText = edited
+            folded = null
+        }
         editing = false
     }
     BackHandler(editing) { finishEditing() }
