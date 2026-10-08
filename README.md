@@ -14,6 +14,18 @@ your computer.
 
 The app has no internet permission, no analytics and no crash reporting.
 
+<p>
+  <img src="docs/screenshots/home.webp" width="200" alt="Home with pinned notes and notes grouped by date">
+  <img src="docs/screenshots/note.webp" width="200" alt="A note with tasks, folding and a callout">
+  <img src="docs/screenshots/edit.webp" width="200" alt="Edit mode with syntax colors and the formatting toolbar">
+  <img src="docs/screenshots/search.webp" width="200" alt="Searching for a tag">
+</p>
+<p>
+  <img src="docs/screenshots/sidebar.webp" width="200" alt="The folder sidebar">
+  <img src="docs/screenshots/home-dark.webp" width="200" alt="Home in dark mode">
+  <img src="docs/screenshots/code-dark.webp" width="200" alt="A note with a code block and a footnote in dark mode">
+</p>
+
 ## Features
 
 **Notes and folders**
