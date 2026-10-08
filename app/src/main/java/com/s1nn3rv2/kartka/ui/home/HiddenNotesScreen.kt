@@ -1,5 +1,10 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.MaterialShapes
+import com.s1nn3rv2.kartka.ui.EmptyState
 import android.text.format.DateUtils
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -51,7 +56,7 @@ import kotlinx.coroutines.launch
  * restore and permanent deletion (always confirmed); scratch offers Keep (move to the default folder) and opens notes.
  * Both are emptied of notes older than 30 days on startup.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HiddenNotesScreen(notes: Notes, trash: Boolean, onOpenNote: (String) -> Unit, onBack: () -> Unit, snackbar: SnackbarHostState) {
     val scope = rememberCoroutineScope()
@@ -96,12 +101,11 @@ fun HiddenNotesScreen(notes: Notes, trash: Boolean, onOpenNote: (String) -> Unit
         ) {
             if (items.isEmpty()) {
                 item {
-                    Text(
-                        if (trash) "The trash is empty." else "No scratch notes. Start one from the + button on the home screen.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
-                    )
+                    if (trash) {
+                        EmptyState(Icons.Outlined.Delete, "The trash is empty.", MaterialShapes.SoftBurst)
+                    } else {
+                        EmptyState(Icons.Outlined.Bolt, "No scratch notes. Start one from the + button on the home screen.", MaterialShapes.Sunny)
+                    }
                 }
             }
             itemsIndexed(items, key = { _, m -> m.path }) { i, meta ->

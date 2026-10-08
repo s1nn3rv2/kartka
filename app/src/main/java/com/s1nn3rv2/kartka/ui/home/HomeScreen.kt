@@ -1,5 +1,26 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.material.icons.outlined.SearchOff
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material3.MaterialShapes
+import com.s1nn3rv2.kartka.ui.EmptyState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.windowInsetsTopHeight
@@ -198,26 +219,33 @@ private fun Home(
     // The status bar area takes the bar's color, so the bar reads as one solid piece when it slides back in
     // (otherwise the notes show through above it).
     val scrolled by remember { derivedStateOf { list.canScrollBackward } }
-    val statusBarColor by animateColorAsState(if (scrolled) colors.scrolledAppBarContainerColor else colors.appBarContainerColor)
+    val statusBarColor by animateColorAsState(
+        when {
+            selection.active -> TopAppBarDefaults.topAppBarColors().containerColor
+            scrolled -> colors.scrolledAppBarContainerColor
+            else -> colors.appBarContainerColor
+        },
+    )
     Box {
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             // Both in Scaffold slots, so a snackbar lifts the FAB menu above itself instead of covering it.
             snackbarHost = { SnackbarHost(snackbar) },
-            floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
+            floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier, hidden = selection.active) },
             topBar = {
-                if (selection.active) return@Scaffold SelectionBar(selection, notes) { state.notes.map { it.path } }
-                AppBarWithSearch(
-                    state = search,
-                    inputField = inputField,
-                    scrollBehavior = scrollBehavior,
-                    colors = colors,
-                    navigationIcon = {
-                        IconButton(onClick = onMenu, shapes = IconButtonDefaults.shapes()) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Folders")
-                        }
-                    },
-                )
+                SelectionAware(selection.active, { SelectionBar(selection, notes) { state.notes.map { it.path } } }) {
+                    AppBarWithSearch(
+                        state = search,
+                        inputField = inputField,
+                        scrollBehavior = scrollBehavior,
+                        colors = colors,
+                        navigationIcon = {
+                            IconButton(onClick = onMenu, shapes = IconButtonDefaults.shapes()) {
+                                Icon(Icons.Filled.Menu, contentDescription = "Folders")
+                            }
+                        },
+                    )
+                }
                 ExpandedFullScreenContainedSearchBar(state = search, inputField = inputField, colors = colors.searchBarColors) {
                     SearchResults(notes, query) { path ->
                         scope.launch { search.animateToCollapsed() }
@@ -235,8 +263,8 @@ private fun Home(
                     // A pin added while at the top would appear above the first visible row; keep the top in view.
                     LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
                     NoteGrid(layout, list, padding) {
-                        if (state.notes.isEmpty()) fullLine("empty") { Empty("No notes yet. Tap + to write one.") }
-                        for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = true, selection, onOpenNote)
+                        if (state.notes.isEmpty()) fullLine("empty") { EmptyState(Icons.Outlined.EditNote, "No notes yet. Tap + to write one.", MaterialShapes.Cookie9Sided) }
+                        for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = true, selection, pins, onOpenNote)
                     }
                 }
             }
@@ -245,7 +273,7 @@ private fun Home(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Folder(
     notes: Notes,
@@ -273,19 +301,20 @@ private fun Folder(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
+        floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier, hidden = selection.active) },
         topBar = {
-            if (selection.active) return@Scaffold SelectionBar(selection, notes) { here.map { it.path } }
-            LargeFlexibleTopAppBar(
-                title = { Text(folder.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                subtitle = { Text(if (here.size == 1) "1 note" else "${here.size} notes") },
-                navigationIcon = {
-                    IconButton(onClick = onBack, shapes = IconButtonDefaults.shapes()) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
+            SelectionAware(selection.active, { SelectionBar(selection, notes) { here.map { it.path } } }) {
+                LargeFlexibleTopAppBar(
+                    title = { Text(folder.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    subtitle = { Text(if (here.size == 1) "1 note" else "${here.size} notes") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    scrollBehavior = scrollBehavior,
+                )
+            }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize()) {
@@ -302,8 +331,10 @@ private fun Folder(
                         ) { Text(path.substringAfterLast('/')) }
                     }
                 }
-                if (here.isEmpty() && subfolders.isEmpty()) fullLine("empty") { Empty("Nothing here yet. Tap + to write a note in this folder.") }
-                for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = false, selection, onOpenNote)
+                if (here.isEmpty() && subfolders.isEmpty()) fullLine("empty") {
+                    EmptyState(Icons.Outlined.FolderOpen, "Nothing here yet. Tap + to write a note in this folder.", MaterialShapes.Clover4Leaf)
+                }
+                for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = false, selection, pins, onOpenNote)
             }
         }
     }
@@ -370,6 +401,7 @@ private fun LazyStaggeredGridScope.noteGroup(
     indexVersion: Int,
     showFolder: Boolean,
     selection: Selection,
+    pins: Set<String>,
     onOpenNote: (String) -> Unit,
 ) {
     fullLine("label:$label") { GroupLabel(label) }
@@ -379,9 +411,9 @@ private fun LazyStaggeredGridScope.noteGroup(
         val onLongClick = { selection.toggle(meta.path) }
         val selected = if (selection.active) meta.path in selection.paths else null
         if (layout == NoteLayout.CARDS) {
-            NoteCard(meta, notes, indexVersion, showFolder, selected, onClick, onLongClick)
+            NoteCard(meta, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
         } else {
-            NoteRow(meta, i, items.size, notes, indexVersion, showFolder, selected, onClick, onLongClick)
+            NoteRow(meta, i, items.size, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
         }
     }
 }
@@ -423,6 +455,21 @@ private fun rememberSelection(notes: Notes, state: NotesState, snackbar: Snackba
     return selection
 }
 
+/** The normal top bar, or the selection bar while selecting, sliding and fading between the two. */
+@Composable
+private fun SelectionAware(selecting: Boolean, selectionBar: @Composable () -> Unit, bar: @Composable () -> Unit) {
+    val motion = MaterialTheme.motionScheme
+    AnimatedContent(
+        selecting,
+        transitionSpec = {
+            (fadeIn(motion.defaultEffectsSpec()) + slideInVertically(motion.fastSpatialSpec()) { -it / 3 }) togetherWith
+                (fadeOut(motion.fastEffectsSpec()) + slideOutVertically(motion.fastSpatialSpec()) { -it / 3 }) using
+                SizeTransform(clip = false)
+        },
+        label = "top bar",
+    ) { if (it) selectionBar() else bar() }
+}
+
 /** Replaces the top bar while selecting: how many, select all, and move to trash. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -430,7 +477,12 @@ private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<Str
     val pins by notes.pins.collectAsStateWithLifecycle()
     val allPinned = pins.containsAll(selection.paths)
     TopAppBar(
-        title = { Text("${selection.paths.size} selected") },
+        // While the bar animates away the selection is already empty; keep showing the last count.
+        title = {
+            var count by remember { mutableIntStateOf(selection.paths.size) }
+            if (selection.paths.isNotEmpty()) count = selection.paths.size
+            Text("$count selected")
+        },
         navigationIcon = {
             IconButton(onClick = { selection.set(emptySet()) }, shapes = IconButtonDefaults.shapes()) {
                 Icon(Icons.Filled.Close, contentDescription = "Stop selecting")
@@ -456,6 +508,21 @@ private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<Str
     )
 }
 
+/** Marks pop in and out with a small scale, like the selection itself. */
+private fun AnimatedContentTransitionScope<*>.markTransition(): ContentTransform =
+    (fadeIn(tween(150)) + scaleIn(tween(200), initialScale = 0.6f)) togetherWith (fadeOut(tween(100)) + scaleOut(tween(150), targetScale = 0.6f))
+
+/** A card's top corner: the selection circle while selecting, a pin on pinned notes, otherwise nothing. */
+@Composable
+private fun CornerMark(pinned: Boolean, selected: Boolean?, modifier: Modifier) {
+    AnimatedContent(selected, modifier, transitionSpec = { markTransition() }, label = "card corner") { s ->
+        when {
+            s != null -> SelectionMark(s)
+            pinned -> Icon(Icons.Filled.PushPin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
 /** In selection mode, a filled check for selected notes and an empty circle for the rest. */
 @Composable
 private fun SelectionMark(selected: Boolean) {
@@ -472,6 +539,7 @@ private fun NoteCard(
     notes: Notes,
     indexVersion: Int,
     showFolder: Boolean,
+    pinned: Boolean,
     selected: Boolean?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -480,9 +548,12 @@ private fun NoteCard(
     val colors = MaterialTheme.colorScheme
     val shape = MaterialTheme.shapes.large
     val haptics = LocalHapticFeedback.current
+    val container by animateColorAsState(if (selected == true) colors.secondaryContainer else colors.surfaceContainer, MaterialTheme.motionScheme.defaultEffectsSpec())
     Card(
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = if (selected == true) colors.secondaryContainer else colors.surfaceContainer),
+        colors = CardDefaults.cardColors(containerColor = container),
+        // Pinned cards get a thin outline in the theme's main color, the same on every side.
+        border = if (pinned) BorderStroke(1.dp, colors.primary.copy(alpha = 0.6f)) else null,
         modifier = Modifier.clip(shape).combinedClickable(
             onClick = onClick,
             onLongClick = {
@@ -492,12 +563,26 @@ private fun NoteCard(
             onLongClickLabel = "Select",
         ),
     ) {
+        Box(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            if (selected != null) Box(Modifier.padding(bottom = 8.dp)) { SelectionMark(selected) }
+            // The top lines leave room for the corner mark, so nothing reflows when selecting starts.
             if (showFolder && meta.folder.isNotEmpty()) {
-                Text(meta.folder, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    meta.folder,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 22.dp),
+                )
             }
-            Text(meta.title, style = MaterialTheme.typography.titleMediumEmphasized, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text(
+                meta.title,
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 22.dp),
+            )
             if (snippet.isNotEmpty()) {
                 Text(
                     snippet,
@@ -510,6 +595,10 @@ private fun NoteCard(
             }
             Text(relativeTime(meta.modified), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
         }
+        // Top corner: the selection circle while selecting, otherwise a pin on pinned notes. Drawn over the card,
+        // so nothing in it moves when selecting starts or ends.
+        CornerMark(pinned, selected, Modifier.align(Alignment.TopEnd).padding(10.dp))
+        }
     }
 }
 
@@ -521,22 +610,36 @@ private fun NoteRow(
     notes: Notes,
     indexVersion: Int,
     showFolder: Boolean,
+    pinned: Boolean,
     selected: Boolean?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it) }.orEmpty() }
     val colors = MaterialTheme.colorScheme
+    val container by animateColorAsState(if (selected == true) colors.secondaryContainer else colors.surfaceContainer, MaterialTheme.motionScheme.defaultEffectsSpec())
     SegmentedListItem(
         onClick = onClick,
         onLongClick = onLongClick,
         onLongClickLabel = "Select",
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
-        colors = ListItemDefaults.segmentedColors(containerColor = if (selected == true) colors.secondaryContainer else colors.surfaceContainer),
-        leadingContent = selected?.let { { SelectionMark(it) } },
+        colors = ListItemDefaults.segmentedColors(containerColor = container),
         overlineContent = if (showFolder && meta.folder.isNotEmpty()) ({ Text(meta.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) }) else null,
         supportingContent = if (snippet.isNotEmpty()) ({ Text(snippet, maxLines = 2, overflow = TextOverflow.Ellipsis) }) else null,
-        trailingContent = { Text(relativeTime(meta.modified), style = MaterialTheme.typography.labelMedium) },
+        // The end of the row: the time (with a pin on pinned notes), or the selection circle while selecting.
+        // Swapped in place, so the text never jumps sideways.
+        trailingContent = {
+            AnimatedContent(selected, transitionSpec = { markTransition() }, contentAlignment = Alignment.CenterEnd, label = "row end") { s ->
+                if (s != null) {
+                    SelectionMark(s)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (pinned) Icon(Icons.Filled.PushPin, contentDescription = "Pinned", tint = colors.primary, modifier = Modifier.size(16.dp))
+                        Text(relativeTime(meta.modified), style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        },
         modifier = Modifier.padding(bottom = ListItemDefaults.SegmentedGap),
     ) {
         Text(meta.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
@@ -550,14 +653,20 @@ private fun relativeTime(time: Long): String =
         DateUtils.getRelativeTimeSpanString(time, System.currentTimeMillis(), DateUtils.DAY_IN_MILLIS, DateUtils.FORMAT_ABBREV_ALL).toString()
     }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SearchResults(notes: Notes, query: TextFieldState, onOpen: (String) -> Unit) {
     var results by remember { mutableStateOf(emptyList<SearchResult>()) }
+    var searched by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         snapshotFlow { query.text.toString() }.collectLatest { q ->
             delay(100)
             results = notes.search(q)
+            searched = q
         }
+    }
+    if (searched.isNotBlank() && results.isEmpty()) {
+        return EmptyState(Icons.Outlined.SearchOff, "Nothing matches \u201c${searched.trim()}\u201d.", MaterialShapes.Ghostish)
     }
     val highlight = SpanStyle(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
     LazyColumn(contentPadding = PaddingValues(16.dp)) {
@@ -581,10 +690,11 @@ private fun highlighted(r: SearchResult, style: SpanStyle): AnnotatedString = bu
 
 /** The FAB menu: New note and Scratch note. Hides while scrolling down, comes back when scrolling up. */
 @Composable
-private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onNewScratch: () -> Unit, modifier: Modifier) {
+private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onNewScratch: () -> Unit, modifier: Modifier, hidden: Boolean = false) {
     var open by rememberSaveable { mutableStateOf(false) }
     BackHandler(open) { open = false }
-    val visible by remember { derivedStateOf { !list.lastScrolledForward || !list.canScrollForward } }
+    val scrolledAway by remember { derivedStateOf { list.lastScrolledForward && list.canScrollForward } }
+    val visible = !hidden && !scrolledAway
     FloatingActionButtonMenu(
         expanded = open,
         modifier = modifier,
@@ -592,7 +702,7 @@ private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onN
             ToggleFloatingActionButton(
                 checked = open,
                 onCheckedChange = { open = !open },
-                modifier = Modifier.animateFloatingActionButton(visible = visible || open, alignment = Alignment.BottomEnd),
+                modifier = Modifier.animateFloatingActionButton(visible = !hidden && (visible || open), alignment = Alignment.BottomEnd),
             ) {
                 val icon by remember { derivedStateOf { if (checkedProgress > 0.5f) Icons.Filled.Close else Icons.Filled.Add } }
                 Icon(

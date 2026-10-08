@@ -1,5 +1,10 @@
 package com.s1nn3rv2.kartka.ui.onboarding
 
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.MaterialShapes
+import com.s1nn3rv2.kartka.ui.ShapeIcon
 import com.s1nn3rv2.kartka.LocalAppName
 import android.content.Intent
 import android.net.Uri
@@ -36,6 +41,7 @@ import com.s1nn3rv2.kartka.Notes
  * reads the folder with plain file paths. On GrapheneOS, Storage Scopes stands in for full access, and the folder
  * must be added as a scope or it reads as empty.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun OnboardingScreen(notes: Notes, onDone: () -> Unit) {
     val context = LocalContext.current
@@ -59,6 +65,7 @@ fun OnboardingScreen(notes: Notes, onDone: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            ShapeIcon(Icons.Outlined.FolderOpen, MaterialShapes.Clover4Leaf)
             Text(LocalAppName.current, style = MaterialTheme.typography.displaySmall)
             val message = when {
                 !hasAccess -> "${LocalAppName.current} works directly on a folder of markdown files. It needs file access to read and save them."

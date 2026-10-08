@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.ui
 
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialShapes
 import com.s1nn3rv2.kartka.LocalAppName
 import android.content.Context
 import android.hardware.biometrics.BiometricManager
@@ -43,6 +45,7 @@ fun canLock(context: Context) =
  * Covers the app until the fingerprint (or the screen lock PIN) is confirmed. The app stays underneath, so open notes
  * and the back stack are kept. If the phone no longer has a screen lock, it unlocks right away instead of locking out.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LockScreen(onUnlock: () -> Unit) {
     val context = LocalContext.current
@@ -70,7 +73,7 @@ fun LockScreen(onUnlock: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Outlined.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+        ShapeIcon(Icons.Outlined.Lock, MaterialShapes.Cookie7Sided)
         Text("$name is locked", style = MaterialTheme.typography.titleLargeEmphasized, color = MaterialTheme.colorScheme.onBackground)
         Button(onClick = ::prompt, shapes = ButtonDefaults.shapes()) { Text("Unlock") }
     }
