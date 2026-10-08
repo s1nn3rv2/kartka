@@ -49,6 +49,15 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         text = loaded.text
     }
 
+    /**
+     * The file changed on disk (another device, through Syncthing) while this note had edits that weren't saved yet.
+     * Saving stops until [keepMine] or [useTheirs]; leaving the note first keeps the edits in a separate copy.
+     */
+    var conflict by mutableStateOf(false)
+        private set
+
+    private fun diskChanged(repo: NotesRepository) = repo.file(path).lastModified().let { it != 0L && it != diskModified }
+
     val hasUnsavedChanges get() = pendingFromEditor != null || text != savedText
 
     suspend fun load() {
@@ -75,10 +84,34 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         }
     }
 
-    /** Takes over any pending editor text and saves now (Done, back, leaving the note). */
-    fun saveNow() {
+    /** Takes over any pending editor text and saves now (Done, back, leaving the note: [final]). */
+    fun saveNow(final: Boolean = false) {
         saveJob?.cancel()
-        saveJob = scope.launch { save() }
+        saveJob = scope.launch { fileLock.withLock { saveLocked(final) } }
+    }
+
+    /** Overwrites the other device's version with the text here. */
+    fun keepMine() {
+        val repo = notes.repository ?: return
+        scope.launch {
+            fileLock.withLock {
+                diskModified = withContext(Dispatchers.IO) { repo.file(path).lastModified() }
+                conflict = false
+                saveLocked()
+            }
+        }
+    }
+
+    /** Drops the edits here and shows the other device's version. */
+    fun useTheirs() {
+        val repo = notes.repository ?: return
+        scope.launch {
+            fileLock.withLock {
+                pendingFromEditor = null
+                conflict = false
+                apply(withContext(Dispatchers.IO) { repo.read(path) })
+            }
+        }
     }
 
     /** Saves and renames take turns, so a late autosave can never recreate the file under its old name. */
@@ -89,7 +122,7 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
     /** Set once the note was moved to the trash: nothing may write it again (that would recreate the file). */
     private var closed = false
 
-    private suspend fun saveLocked() {
+    private suspend fun saveLocked(final: Boolean = false) {
         if (closed) return
         pendingFromEditor?.let { current ->
             pendingFromEditor = null
@@ -98,9 +131,24 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         val t = text ?: return
         if (t == savedText) return
         val repo = notes.repository ?: return
+        if (conflict || withContext(Dispatchers.IO) { diskChanged(repo) }) {
+            conflict = true
+            if (final) keepCopy(repo, t)
+            return
+        }
         val meta = withContext(Dispatchers.IO) { repo.write(path, t, format) }
         savedText = t
         diskModified = meta.modified
+        notes.refreshSoon()
+    }
+
+    /** Leaving with a conflict still open: the edits go to "<title> (my edits)" next to the note, so nothing is lost. */
+    private suspend fun keepCopy(repo: NotesRepository, t: String) {
+        withContext(Dispatchers.IO) {
+            val copy = repo.create(path.substringBeforeLast('/', ""), PathRules.title(path.substringAfterLast('/')) + " (my edits)")
+            repo.write(copy, t, format)
+        }
+        savedText = t
         notes.refreshSoon()
     }
 
@@ -155,13 +203,12 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
         }
     }
 
-    /** Reloads when the file changed on disk (e.g. Syncthing) and nothing here is unsaved. True if it reloaded. */
-    suspend fun reloadIfChangedOnDisk(): Boolean {
-        val repo = notes.repository ?: return false
-        if (hasUnsavedChanges) return false
-        val modified = withContext(Dispatchers.IO) { repo.file(path).lastModified() }
-        if (modified == diskModified || modified == 0L) return false
-        load()
-        return true
+    /** Reloads when the file changed on disk (e.g. Syncthing); with unsaved edits here, flags a [conflict] instead. */
+    suspend fun reloadIfChangedOnDisk() {
+        val repo = notes.repository ?: return
+        fileLock.withLock {
+            if (closed || !withContext(Dispatchers.IO) { diskChanged(repo) }) return
+            if (hasUnsavedChanges) conflict = true else apply(withContext(Dispatchers.IO) { repo.read(path) })
+        }
     }
 }

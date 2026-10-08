@@ -1,5 +1,10 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Row
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.s1nn3rv2.kartka.markdown.Edits
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
@@ -120,9 +125,14 @@ fun NoteScreen(
     // Leaving the note (back, predictive back, process going away) saves whatever is pending.
     DisposableEffect(session) {
         onDispose {
-            session.saveNow()
+            session.saveNow(final = true)
             if (isNew) session.discardIfEmpty()
         }
+    }
+    // Changes from other devices show up while the note is open, not only when coming back to the app.
+    LaunchedEffect(session) {
+        app.notes.state.map { s -> s.notes.find { it.path == session.path }?.modified }.distinctUntilChanged()
+            .collect { session.reloadIfChangedOnDisk() }
     }
     LifecycleResumeEffect(session) {
         scope.launch { session.reloadIfChangedOnDisk() }
@@ -346,76 +356,98 @@ fun NoteScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            if (prepareEditor) {
-                val colors = editorColors()
-                AndroidView(
-                    factory = { context ->
-                        ScrollView(context).apply {
-                            isFillViewport = true
-                            addView(
-                                MarkdownEditText(context, colors).also { e ->
-                                    e.onEdited = { session.editorChanged { e.text.toString() } }
-                                    e.onHistoryChanged = {
-                                        canUndo = e.canUndo
-                                        canRedo = e.canRedo
-                                    }
-                                    editor = e
-                                },
-                                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
-                            )
-                        }
-                    },
-                    // Drawn underneath the View layer while reading, so its layout and drawing are ready before Edit
-                    // is tapped; it just can't take focus or be reached by screen readers until then.
-                    update = { scroll ->
-                        scroll.descendantFocusability =
-                            if (editing) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                        scroll.importantForAccessibility =
-                            if (editing) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-                        editor?.setColors(colors)
-                    },
-                    // The scroll view can draw past its box (into the navigation bar area), where the View layer
-                    // doesn't cover it; clip it so the hidden editor never shows through.
-                    modifier = Modifier.fillMaxSize().clipToBounds(),
-                )
-            }
-            val b = blocks
-            val f = folded
-            if (!editing && b != null && f != null) {
-                MarkdownView(
-                    blocks = b,
-                    folded = f,
-                    onToggleFold = { i -> folded = if (i in f) f - i else f + i },
-                    onLink = { span ->
-                        when (span.style) {
-                            InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)
-                            InlineStyle.TAG -> onOpenTag(span.url.orEmpty())
-                            InlineStyle.FOOTNOTE -> b.indexOfFirst { it is MdFootnote && it.label == span.url }.takeIf { it >= 0 }?.let { reveal(b, it) }
-                            else -> Unit
-                        }
-                    },
-                    imageFile = { url -> app.notes.imageFile(session.path, url) },
-                    onToggleTask = { task ->
-                        text?.let { t ->
-                            if (task.offset in t.indices) {
-                                session.replace(t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x"))
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
+            if (session.conflict) ConflictBanner(session::useTheirs, session::keepMine)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (prepareEditor) {
+                    val colors = editorColors()
+                    AndroidView(
+                        factory = { context ->
+                            ScrollView(context).apply {
+                                isFillViewport = true
+                                addView(
+                                    MarkdownEditText(context, colors).also { e ->
+                                        e.onEdited = { session.editorChanged { e.text.toString() } }
+                                        e.onHistoryChanged = {
+                                            canUndo = e.canUndo
+                                            canRedo = e.canRedo
+                                        }
+                                        editor = e
+                                    },
+                                    ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                                )
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    state = listState,
-                )
+                        },
+                        // Drawn underneath the View layer while reading, so its layout and drawing are ready before Edit
+                        // is tapped; it just can't take focus or be reached by screen readers until then.
+                        update = { scroll ->
+                            scroll.descendantFocusability =
+                                if (editing) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                            scroll.importantForAccessibility =
+                                if (editing) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                            editor?.setColors(colors)
+                        },
+                        // The scroll view can draw past its box (into the navigation bar area), where the View layer
+                        // doesn't cover it; clip it so the hidden editor never shows through.
+                        modifier = Modifier.fillMaxSize().clipToBounds(),
+                    )
+                }
+                val b = blocks
+                val f = folded
+                if (!editing && b != null && f != null) {
+                    MarkdownView(
+                        blocks = b,
+                        folded = f,
+                        onToggleFold = { i -> folded = if (i in f) f - i else f + i },
+                        onLink = { span ->
+                            when (span.style) {
+                                InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)
+                                InlineStyle.TAG -> onOpenTag(span.url.orEmpty())
+                                InlineStyle.FOOTNOTE -> b.indexOfFirst { it is MdFootnote && it.label == span.url }.takeIf { it >= 0 }?.let { reveal(b, it) }
+                                else -> Unit
+                            }
+                        },
+                        imageFile = { url -> app.notes.imageFile(session.path, url) },
+                        onToggleTask = { task ->
+                            text?.let { t ->
+                                if (task.offset in t.indices) {
+                                    session.replace(t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x"))
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                        contentPadding = PaddingValues(bottom = 24.dp),
+                        state = listState,
+                    )
+                }
+                val e = editor
+                if (editing && e != null) {
+                    EditToolbar(
+                        e, canUndo, canRedo,
+                        onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
             }
-            val e = editor
-            if (editing && e != null) {
-                EditToolbar(
-                    e, canUndo, canRedo,
-                    onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            }
+        }
+    }
+}
+
+@Composable
+private fun ConflictBanner(onUseTheirs: () -> Unit, onKeepMine: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier.padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.tertiaryContainer)
+            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+    ) {
+        Text(
+            "This note changed on another device while you were editing it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onTertiaryContainer,
+        )
+        Row(Modifier.align(Alignment.End)) {
+            TextButton(onClick = onUseTheirs) { Text("Use theirs") }
+            TextButton(onClick = onKeepMine) { Text("Keep mine") }
         }
     }
 }
