@@ -4,14 +4,17 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ScrollView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -52,6 +55,7 @@ import com.s1nn3rv2.kartka.markdown.MdListItem
 import com.s1nn3rv2.kartka.ui.note.MarkdownView
 import com.s1nn3rv2.kartka.ui.theme.KartkaTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -138,7 +142,6 @@ private fun NoteScreen(file: File, onBack: () -> Unit) {
     var text by remember(file) { mutableStateOf<String?>(null) }
     LaunchedEffect(file) { text = withContext(Dispatchers.IO) { file.readText() } }
     var editing by rememberSaveable { mutableStateOf(false) }
-    var editor by remember { mutableStateOf<MarkdownEditText?>(null) }
     val blocks by produceState<List<MdBlock>?>(null, text) {
         value = text?.let { withContext(Dispatchers.Default) { BlockBuilder.build(it) } }
     }
@@ -149,9 +152,27 @@ private fun NoteScreen(file: File, onBack: () -> Unit) {
         val b = blocks ?: return@LaunchedEffect
         if (folded == null) folded = b.indices.filter { (b[it] as? MdListItem)?.collapsed == true }.toSet()
     }
+
+    // The editor is built hidden shortly after the note opens: laying out a long note takes ~100 ms of main-thread
+    // time, which would otherwise land on the Edit tap. Edit and Done then only switch which layer is visible.
+    var editor by remember(file) { mutableStateOf<MarkdownEditText?>(null) }
+    var editorText by remember(file) { mutableStateOf<String?>(null) }
+    var prepareEditor by remember(file) { mutableStateOf(false) }
+    LaunchedEffect(blocks) {
+        if (blocks == null) return@LaunchedEffect
+        delay(300)
+        prepareEditor = true
+    }
+    LaunchedEffect(editor, text) {
+        val e = editor ?: return@LaunchedEffect
+        val t = text ?: return@LaunchedEffect
+        if (editorText !== t) {
+            e.load(t)
+            editorText = t
+        }
+    }
     fun finishEditing() {
-        editor?.let { text = it.text.toString() }
-        editor = null
+        editor?.let { e -> e.text.toString().also { text = it; editorText = it } }
         folded = null
         editing = false
     }
@@ -171,33 +192,46 @@ private fun NoteScreen(file: File, onBack: () -> Unit) {
                     if (editing) {
                         TextButton(onClick = ::finishEditing) { Text("Done") }
                     } else {
-                        TextButton(onClick = { editing = true }, enabled = text != null) { Text("Edit") }
+                        TextButton(
+                            onClick = {
+                                prepareEditor = true
+                                editing = true
+                            },
+                            enabled = text != null,
+                        ) { Text("Edit") }
                     }
                 },
             )
         },
     ) { padding ->
-        val content = Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()
-        if (editing) {
-            val colors = editorColors()
-            AndroidView(
-                factory = { context ->
-                    ScrollView(context).apply {
-                        isFillViewport = true
-                        addView(
-                            MarkdownEditText(context, colors).also { editor = it },
-                            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
-                        )
-                    }
-                },
-                update = { editor?.setColors(colors) },
-                modifier = content,
-            )
-            LaunchedEffect(editor) { editor?.let { e -> text?.let { e.load(it) } } }
-        } else {
+        Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
+            if (prepareEditor) {
+                val colors = editorColors()
+                AndroidView(
+                    factory = { context ->
+                        ScrollView(context).apply {
+                            isFillViewport = true
+                            addView(
+                                MarkdownEditText(context, colors).also { editor = it },
+                                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                            )
+                        }
+                    },
+                    // Drawn underneath the View layer while reading, so its layout and drawing are ready before Edit
+                    // is tapped; it just can't take focus or be reached by screen readers until then.
+                    update = { scroll ->
+                        scroll.descendantFocusability =
+                            if (editing) ViewGroup.FOCUS_AFTER_DESCENDANTS else ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                        scroll.importantForAccessibility =
+                            if (editing) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                        editor?.setColors(colors)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             val b = blocks
             val f = folded
-            if (b != null && f != null) {
+            if (!editing && b != null && f != null) {
                 MarkdownView(
                     blocks = b,
                     folded = f,
@@ -207,7 +241,7 @@ private fun NoteScreen(file: File, onBack: () -> Unit) {
                             if (task.offset !in t.indices) t else t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x")
                         }
                     },
-                    modifier = content,
+                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                     contentPadding = PaddingValues(bottom = 24.dp),
                 )
             }

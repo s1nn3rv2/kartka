@@ -21,9 +21,10 @@ android {
 
     buildTypes {
         release {
+            // ponytail: sideloaded personal app, signed with the local debug key; add a real key if it is ever published.
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
     }
