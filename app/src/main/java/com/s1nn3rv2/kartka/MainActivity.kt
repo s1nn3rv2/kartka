@@ -44,8 +44,8 @@ import com.s1nn3rv2.kartka.ui.theme.KartkaTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-private const val ACTION_NEW_NOTE = "com.s1nn3rv2.kartka.NEW_NOTE"
-private const val ACTION_NEW_SCRATCH = "com.s1nn3rv2.kartka.NEW_SCRATCH"
+const val ACTION_NEW_NOTE = "com.s1nn3rv2.kartka.NEW_NOTE"
+const val ACTION_NEW_SCRATCH = "com.s1nn3rv2.kartka.NEW_SCRATCH"
 
 /** Screens. The back stack is a plain list of these, animated by [SlideStack]. */
 sealed interface Route {
