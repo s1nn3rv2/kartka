@@ -1,5 +1,10 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Info
 import com.s1nn3rv2.kartka.ui.MenuAction
@@ -370,19 +375,16 @@ fun NoteScreen(
                             ),
                         )
                     }
-                    FilledTonalIconButton(
-                        onClick = {
-                            if (editing) {
-                                finishEditing()
-                            } else {
+                    // While editing, Done sits on the formatting toolbar instead.
+                    AnimatedVisibility(!editing, enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                        FilledTonalIconButton(
+                            onClick = {
                                 prepareEditor = true
                                 editing = true
-                            }
-                        },
-                        enabled = text != null && (editing || !session.readOnly),
-                        shapes = IconButtonDefaults.shapes(),
-                    ) {
-                        if (editing) Icon(Icons.Filled.Check, contentDescription = "Done") else Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                            },
+                            enabled = text != null && !session.readOnly,
+                            shapes = IconButtonDefaults.shapes(),
+                        ) { Icon(Icons.Filled.Edit, contentDescription = "Edit") }
                     }
                 },
             )
@@ -480,6 +482,7 @@ fun NoteScreen(
                         EditToolbar(
                             e, canUndo, canRedo,
                             onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            onDone = ::finishEditing,
                         )
                     }
                 }
