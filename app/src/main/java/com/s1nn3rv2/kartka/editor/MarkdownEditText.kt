@@ -51,6 +51,16 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
             style.baseTextSize = 16f * style.density * value
         }
 
+    /** Called whenever the cursor moves, with its position (also while typing). */
+    var onCursorMoved: ((Int) -> Unit)? = null
+
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        // Null while the base class constructor runs.
+        @Suppress("UNNECESSARY_SAFE_CALL")
+        onCursorMoved?.invoke(if (selStart == selEnd) selStart else -1)
+    }
+
     /** Called after every user edit. */
     var onEdited: (() -> Unit)? = null
 

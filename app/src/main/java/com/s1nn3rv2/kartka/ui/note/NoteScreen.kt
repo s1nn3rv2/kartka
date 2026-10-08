@@ -1,5 +1,11 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import com.s1nn3rv2.kartka.index.normalize
+import com.s1nn3rv2.kartka.Notes
+import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.CompositionLocalProvider
@@ -155,6 +161,8 @@ fun NoteScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
     var showBacklinks by remember { mutableStateOf(false) }
+    // Set while the cursor is after an unfinished `[[`: where the name starts and what's typed so far.
+    var linkQuery by remember { mutableStateOf<Pair<Int, String>?>(null) }
     LaunchedEffect(blocks) {
         val b = blocks ?: return@LaunchedEffect
         if (folded == null || folded!!.any { it >= b.size }) {
@@ -372,6 +380,7 @@ fun NoteScreen(
                                 addView(
                                     MarkdownEditText(context, colors).also { e ->
                                         e.onEdited = { session.editorChanged { e.text.toString() } }
+                                        e.onCursorMoved = { cursor -> linkQuery = if (cursor < 0) null else Edits.linkQuery(e.text, cursor) }
                                         e.onHistoryChanged = {
                                             canUndo = e.canUndo
                                             canRedo = e.canRedo
@@ -430,13 +439,41 @@ fun NoteScreen(
                 }
                 val e = editor
                 if (editing && e != null) {
-                    EditToolbar(
-                        e, canUndo, canRedo,
-                        onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+                    Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        linkQuery?.let { (start, typed) ->
+                            LinkSuggestions(app.notes, typed, exclude = session.path) { title ->
+                                e.applyEdit { Edits.completeLink(it, start, title) }
+                            }
+                        }
+                        EditToolbar(
+                            e, canUndo, canRedo,
+                            onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+/** Note titles matching what's typed after `[[`, best first; tapping one completes the link. */
+@Composable
+private fun LinkSuggestions(notes: Notes, typed: String, exclude: String, onPick: (String) -> Unit) {
+    val all = notes.state.collectAsStateWithLifecycle().value.notes
+    val titles = remember(all, typed, exclude) {
+        val q = normalize(typed)
+        all.asSequence().filter { it.path != exclude }.map { it.title }.distinct()
+            .mapNotNull { t -> normalize(t).indexOf(q).takeIf { it >= 0 }?.let { t to it } }
+            .sortedWith(compareBy({ it.second != 0 }, { it.first.length })).take(8).map { it.first }.toList()
+    }
+    if (titles.isEmpty()) return
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+        items(titles) { title ->
+            SuggestionChip(
+                onClick = { onPick(title) },
+                label = { Text(title, maxLines = 1) },
+                colors = SuggestionChipDefaults.suggestionChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+            )
         }
     }
 }

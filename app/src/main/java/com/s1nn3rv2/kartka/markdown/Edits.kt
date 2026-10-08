@@ -185,6 +185,25 @@ object Edits {
         return Edit(e.text.replaceRange(e.start, e.end, inserted), cursor, cursor)
     }
 
+    /** When the cursor is just after an unfinished `[[`, where the typed name starts and the name so far. */
+    fun linkQuery(text: CharSequence, cursor: Int): Pair<Int, String>? {
+        var i = cursor - 1
+        while (i >= 1 && cursor - i <= 100) {
+            val c = text[i]
+            if (c == '\n' || c == ']' || c == '|') return null
+            if (c == '[' && text[i - 1] == '[') return (i + 1) to text.substring(i + 1, cursor)
+            i--
+        }
+        return null
+    }
+
+    /** Replaces the name typed since [start] with [title] and closes the link, cursor after it. */
+    fun completeLink(e: Edit, start: Int, title: String): Edit {
+        val closing = if (e.text.startsWith("]]", e.end)) "" else "]]"
+        val cursor = start + title.length + 2
+        return Edit(e.text.replaceRange(start, e.end, title + closing), cursor, cursor)
+    }
+
     fun link(e: Edit): Edit {
         val label = e.text.substring(e.start, e.end).ifEmpty { "text" }
         val inserted = "[$label](url)"

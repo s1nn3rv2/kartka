@@ -93,4 +93,22 @@ class EditsTest {
         assertEquals("![](x.jpg)|\n\nab", show(Edits.image(e("|ab"), "x.jpg")))
         assertEquals("ab\n\n![](x.jpg)|", show(Edits.image(e("ab|"), "x.jpg")))
     }
+
+    // Suggestions only while typing a link name: not after it's closed, not across lines.
+    @Test fun linkQuery() {
+        assertEquals(4 to "Sho", Edits.linkQuery("a [[Sho", 7))
+        assertEquals(4 to "", Edits.linkQuery("a [[", 4))
+        assertNull(Edits.linkQuery("a [[Shop]] b", 12))
+        assertNull(Edits.linkQuery("[[a\nb", 5))
+        assertNull(Edits.linkQuery("[[Note|lab", 10))
+    }
+
+    // Completing keeps an existing closing `]]` instead of doubling it.
+    @Test fun completeLink() {
+        // (The e() helper reads "[" as a selection mark, so these edits are built directly.)
+        val open = Edits.completeLink(Edit("a [[Sho b", 7), 4, "Shopping list")
+        assertEquals("a [[Shopping list]] b" to 19, open.text to open.start)
+        val closed = Edits.completeLink(Edit("a [[Sho]] b", 7), 4, "Shopping list")
+        assertEquals("a [[Shopping list]] b" to 19, closed.text to closed.start)
+    }
 }
