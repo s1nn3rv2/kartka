@@ -32,6 +32,8 @@ enum class Kind {
     HEADING, STRONG, EMPH, STRIKE, INLINE_CODE, LINK, IMAGE,
     CODE_BLOCK, CODE_INFO, QUOTE,
     BULLET, ORDERED_MARKER, TASK, TASK_DONE,
+    /** First line of a list item, for the hanging indent of wrapped lines. `level`: indent columns, `data`: marker shape. */
+    LIST_ITEM,
     /** Leading whitespace of a line; `level` is its width in columns (tab = 4). */
     INDENT,
     HR, TABLE_ROW, TABLE_DELIMITER;
@@ -71,7 +73,22 @@ object StyleBuilder {
             for (i in headings.indices) headings[i].let { headings[i] = it.copy(start = dedent.map(it.start)) }
         }
         indents(text, out)
+        // List item indent columns come from the original text, since the parser may have seen it dedented.
+        for (i in out.indices) out[i].let { r ->
+            if (r.kind == Kind.LIST_ITEM) out[i] = r.copy(level = indentColumns(text, r.start))
+        }
         return MarkdownStyles(out, blocks, headings)
+    }
+
+    private fun indentColumns(text: String, offset: Int): Int {
+        var i = offset
+        while (i > 0 && text[i - 1] != '\n') i--
+        var cols = 0
+        while (i < text.length && (text[i] == ' ' || text[i] == '\t')) {
+            cols += if (text[i] == '\t') 4 - cols % 4 else 1
+            i++
+        }
+        return cols
     }
 
     /**
@@ -251,7 +268,10 @@ object StyleBuilder {
             val end = span.end
             while (i < end && (text[i] == ' ' || text[i] == '\t')) i++
             val depth = generateSequence(item.parent) { it.parent }.count { it is ListBlock } - 1
+            val itemStart = i
+            var shape: String
             if (item.parent is BulletList) {
+                shape = "b"
                 add(i, i + 1, Kind.BULLET, depth)
                 i++
             } else {
@@ -259,13 +279,16 @@ object StyleBuilder {
                 while (i < end && text[i].isDigit()) i++
                 i++ // '.' or ')'
                 add(markerStart, i, Kind.ORDERED_MARKER, depth)
+                shape = "o${i - markerStart}"
             }
             while (i < end && (text[i] == ' ' || text[i] == '\t')) i++
             if (i + 2 < text.length && text[i] == '[' && text[i + 2] == ']' && text[i + 1] in " xX") {
                 val checked = text[i + 1] != ' '
                 add(i, i + 3, Kind.TASK, if (checked) 1 else 0)
                 if (checked) add(i + 3, lineEnd(i), Kind.TASK_DONE)
+                shape = "t"
             }
+            add(itemStart, lineEnd(itemStart), Kind.LIST_ITEM, data = shape)
             visitChildren(item)
         }
 
@@ -303,10 +326,11 @@ object StyleBuilder {
             if (lines.size < 2) return
             val rows = lines.map { splitTableRow(text.substring(it.inputIndex, it.end)) }
             val columns = rows[1].size
-            // Column weight = longest cell text, clamped so one long cell can't squash the rest.
-            val weights = (0 until columns).map { c ->
-                rows.filterIndexed { i, _ -> i != 1 }.maxOf { it.getOrNull(c)?.let(::stripInline)?.length ?: 0 }.coerceIn(3, 40)
-            }.joinToString(",")
+            // Per column "longest word:longest cell" in characters; the row span turns these into pixel widths.
+            val weights = (0 until columns).joinToString(",") { c ->
+                val cells = rows.filterIndexed { i, _ -> i != 1 }.map { stripInline(it.getOrNull(c).orEmpty()) }
+                "${cells.maxOf { cell -> cell.split(' ').maxOf { it.length } }}:${cells.maxOf { it.length }}"
+            }
             lines.forEachIndexed { i, span ->
                 if (i == 1) add(span.inputIndex, span.end, Kind.TABLE_DELIMITER)
                 else add(span.inputIndex, span.end, Kind.TABLE_ROW, if (i == 0) 1 else 0, weights)

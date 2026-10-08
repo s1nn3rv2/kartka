@@ -57,7 +57,7 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
         textSize = 16f
         setTextColor(colors.text)
         val pad = style.dp(20f).toInt()
-        setPadding(pad, style.dp(8f).toInt(), pad, style.dp(160f).toInt())
+        setPadding(pad, style.dp(8f).toInt(), pad, style.dp(24f).toInt())
         // Keep our SpannableStringBuilder instead of copying 75 KB on every setText.
         setEditableFactory(object : Editable.Factory() {
             override fun newEditable(source: CharSequence) = source as? Editable ?: super.newEditable(source)

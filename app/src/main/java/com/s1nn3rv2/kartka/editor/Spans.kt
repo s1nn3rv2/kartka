@@ -69,6 +69,23 @@ fun createSpan(r: StyleRange, revealed: Boolean, style: EditorStyle): MdSpan? = 
     Kind.TASK -> TaskSpan(r, style)
     Kind.TASK_DONE -> TaskDoneSpan(r, style)
     Kind.INDENT -> IndentSpan(r, style)
+    Kind.LIST_ITEM -> ListItemSpan(r, style)
+}
+
+/** Hanging indent: wrapped lines of a list item line up with the text after the bullet. */
+class ListItemSpan(override val spec: StyleRange, private val style: EditorStyle) : LeadingMarginSpan, MdSpan {
+    override val revealed get() = false
+    override fun getLeadingMargin(first: Boolean): Int {
+        if (first) return 0
+        val shape = spec.data.orEmpty()
+        val marker = when {
+            shape == "t" -> 0.6f + 0.28f + 1.2f
+            shape.startsWith("o") -> (shape.drop(1).toIntOrNull() ?: 2) * 0.55f
+            else -> 0.6f
+        }
+        return (style.baseTextSize * (spec.level * 0.35f + marker + 0.28f)).toInt()
+    }
+    override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
 }
 
 class HiddenSpan(override val spec: StyleRange) : ReplacementSpan(), MdSpan {
@@ -291,7 +308,11 @@ internal fun zeroHeight(fm: Paint.FontMetricsInt) {
  */
 class TableRowSpan(override val spec: StyleRange, private val style: EditorStyle) : ReplacementSpan(), MdSpan {
     override val revealed get() = false
-    private val weights = spec.data.orEmpty().split(',').mapNotNull { it.toIntOrNull() }
+    /** Per column: (longest word, longest cell) in characters. */
+    private val columns = spec.data.orEmpty().split(',').map { c ->
+        c.split(':').let { (it.getOrNull(0)?.toIntOrNull() ?: 1) to (it.getOrNull(1)?.toIntOrNull() ?: 1) }
+    }
+    private var widths = FloatArray(0)
     private val cellPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cachedWidth = -1
@@ -308,14 +329,27 @@ class TableRowSpan(override val spec: StyleRange, private val style: EditorStyle
         cellPaint.textSize = style.baseTextSize * 0.92f
         cellPaint.typeface = if (spec.level == 1) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         val cells = splitTableRow(row)
-        val total = weights.sum().coerceAtLeast(1)
         val pad = style.dp(8f).toInt()
-        layouts = weights.mapIndexed { i, w ->
-            val colWidth = (width * w / total - 2 * pad).coerceAtLeast(1)
+        widths = columnWidths(width.toFloat(), cellPaint.measureText("n") * 1.1f, 2f * pad)
+        layouts = widths.mapIndexed { i, w ->
+            val colWidth = (w.toInt() - 2 * pad).coerceAtLeast(1)
             val cell = stripInline(cells.getOrNull(i).orEmpty())
             StaticLayout.Builder.obtain(cell, 0, cell.length, cellPaint, colWidth).setIncludePad(false).build()
         }
         rowHeight = (layouts.maxOfOrNull { it.height } ?: 0) + 2 * pad
+    }
+
+    /** Every column first gets room for its longest word, then the rest is shared by how much longer its cells are. */
+    private fun columnWidths(total: Float, charWidth: Float, padding: Float): FloatArray {
+        val min = FloatArray(columns.size) { columns[it].first * charWidth + padding }
+        val extra = FloatArray(columns.size) { ((columns[it].second - columns[it].first) * charWidth).coerceAtLeast(0f) }
+        val minSum = min.sum()
+        if (minSum >= total) return FloatArray(min.size) { min[it] * total / minSum }
+        val extraSum = extra.sum()
+        val spare = total - minSum
+        return FloatArray(min.size) {
+            min[it] + if (extraSum <= spare) extra[it] + (spare - extraSum) / min.size else extra[it] * spare / extraSum
+        }
     }
 
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
@@ -331,10 +365,10 @@ class TableRowSpan(override val spec: StyleRange, private val style: EditorStyle
 
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         measure(text, start, end)
-        val total = weights.sum().coerceAtLeast(1)
         val pad = style.dp(8f)
-        val rowTop = (y - rowHeight).toFloat()
-        val rowBottom = y.toFloat()
+        // The line also holds the newline's descent below our row; fill the whole line so rows touch.
+        val rowTop = top.toFloat()
+        val rowBottom = bottom.toFloat()
         if (spec.level == 1) {
             linePaint.style = Paint.Style.FILL
             linePaint.color = style.colors.tableHeaderBackground
@@ -345,8 +379,7 @@ class TableRowSpan(override val spec: StyleRange, private val style: EditorStyle
         linePaint.strokeWidth = style.dp(1f)
         linePaint.color = style.colors.outlineVariant
         var cx = x
-        weights.forEachIndexed { i, w ->
-            val colWidth = style.availableWidth * w / total.toFloat()
+        widths.forEachIndexed { i, colWidth ->
             canvas.drawRect(cx, rowTop, cx + colWidth, rowBottom, linePaint)
             canvas.save()
             canvas.translate(cx + pad, rowTop + pad)

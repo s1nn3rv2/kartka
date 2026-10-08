@@ -49,7 +49,7 @@ class StyleBuilderTest {
         val md = "| Dzień | Trening |\n|---|---|\n| Wtorek | Całe ciało (**FBW**) |\n"
         val rows = ranges(md, Kind.TABLE_ROW)
         assertEquals(listOf(1, 0), rows.map { it.level })
-        assertEquals("6,16", rows.first().data)
+        assertEquals("6:6,7:16", rows.first().data)
         assertEquals(listOf("|---|---|"), texts(md, Kind.TABLE_DELIMITER))
         assertEquals(listOf(0 until md.length - 1), StyleBuilder.build(md).blocks)
         // No hidden markers inside table rows: the row span draws cells itself.
