@@ -71,6 +71,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -168,7 +169,8 @@ fun NoteScreen(
         }
     }
     // New untitled notes start with an empty title field (blank keeps the date-time file name); the title is the file name.
-    val untitled = isNew && autoName.matches(path.substringAfterLast('/'))
+    // Scratch notes keep the date-time name and start in the body: what you type matters more than a title there.
+    val untitled = isNew && !session.isScratch && autoName.matches(path.substringAfterLast('/'))
     val title = rememberTextFieldState(if (untitled) "" else PathRules.title(path.substringAfterLast('/')))
     val titleFocus = remember { FocusRequester() }
     val context = LocalContext.current
@@ -181,6 +183,8 @@ fun NoteScreen(
     LaunchedEffect(Unit) { if (untitled) titleFocus.requestFocus() }
     LaunchedEffect(editing, editor) { if (editing && !untitled) focusEditor() }
 
+    // The title becomes the file name as soon as you leave the title field, so menus and sheets see the new name.
+    fun commitTitle() = session.rename(title.text.toString().trim())
     fun finishEditing() {
         // The editor stays alive under View mode, so it must give up focus or the keyboard stays open.
         editor?.let { e ->
@@ -188,7 +192,7 @@ fun NoteScreen(
             context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(e.windowToken, 0)
         }
         session.saveNow()
-        session.rename(title.text.toString().trim())
+        commitTitle()
         editing = false
     }
     BackHandler(editing) { finishEditing() }
@@ -262,11 +266,11 @@ fun NoteScreen(
                 title = {
                     Column {
                         if (editing) {
-                            TitleField(title, titleFocus, onNext = ::focusEditor)
+                            TitleField(title, titleFocus, onNext = ::focusEditor, onLeave = ::commitTitle)
                         } else {
                             Text(PathRules.title(session.path.substringAfterLast('/')), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        val folder = session.path.substringBeforeLast('/', "")
+                        val folder = if (session.isScratch) "Scratch" else session.path.substringBeforeLast('/', "")
                         if (folder.isNotEmpty()) {
                             Text(folder, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
@@ -279,12 +283,12 @@ fun NoteScreen(
                 },
                 actions = {
                     if (blocks?.any { it is MdHeading } == true) {
-                        IconButton(onClick = { showOutline = true }, shapes = IconButtonDefaults.shapes()) {
+                        IconButton(onClick = { commitTitle(); showOutline = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Outline")
                         }
                     }
                     Box {
-                        IconButton(onClick = { showMenu = true }, shapes = IconButtonDefaults.shapes()) {
+                        IconButton(onClick = { commitTitle(); showMenu = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -495,7 +499,7 @@ private fun OutlineSheet(headings: List<Pair<Int, MdHeading>>, onPick: (Int) -> 
 }
 
 @Composable
-private fun TitleField(state: TextFieldState, focus: FocusRequester, onNext: () -> Unit) {
+private fun TitleField(state: TextFieldState, focus: FocusRequester, onNext: () -> Unit, onLeave: () -> Unit) {
     val style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface)
     BasicTextField(
         state = state,
@@ -504,7 +508,7 @@ private fun TitleField(state: TextFieldState, focus: FocusRequester, onNext: () 
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
         onKeyboardAction = { onNext() },
-        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+        modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { if (!it.isFocused) onLeave() },
         decorator = { field ->
             if (state.text.isEmpty()) Text("Title", style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
             field()
@@ -513,7 +517,7 @@ private fun TitleField(state: TextFieldState, focus: FocusRequester, onNext: () 
 }
 
 /** The date-time file name that NotesRepository.create gives notes without a title. */
-private val autoName = Regex("""\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}( \d+)?\.md""")
+private val autoName = Regex("""\d{4}-\d{2}-\d{2}[T ]\d{2}-\d{2}(-\d{2})?( \d+)?\.md""")
 
 @Composable
 private fun editorColors(): EditorColors {

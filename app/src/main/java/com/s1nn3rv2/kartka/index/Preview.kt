@@ -7,7 +7,7 @@ import java.time.temporal.ChronoUnit
 
 private val lineMarker = Regex("""^\s*(#{1,6}\s+|[-*+]\s+(\[[ xX]]\s+)?|>\s*|\[!\w+][+-]?\s*|\d{1,9}[.)]\s+)*""")
 private val property = Regex("""^\s*[\w-]+::""")
-private val inlineMarks = Regex("""\*\*|__|~~|==|`|\[\[(?:[^]|\n]*\|)?([^]\n]*)]]|!?\[([^]]*)]\([^)]*\)|\[\^[^]\s]*]:?\s*""")
+private val inlineMarks = Regex("""\*\*|__|~~|==|`|\[\[(?:[^]|\n]*\|)?([^]\n]*)]]|!?\[([^]]*)]\([^)]*\)|\[\^[^]\s]*](?::\s*)?""")
 
 /** A one-glance preview of a note: its first text lines without markdown symbols, code, math blocks or Logseq properties. */
 fun preview(text: String, max: Int = 160): String {

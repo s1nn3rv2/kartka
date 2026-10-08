@@ -18,7 +18,7 @@ class PreviewTest {
     }
 
     @Test fun footnotesAndMathBlocks() {
-        assertEquals("Claim · Note.", preview("Claim[^1]\n\$\$\nx^2\n\$\$\n[^1]: Note.\n"))
+        assertEquals("Claim it · Note.", preview("Claim[^1] it\n\$\$\nx^2\n\$\$\n[^1]: Note.\n"))
     }
 
     @Test fun truncates() {

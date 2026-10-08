@@ -81,13 +81,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        accept(intent)
+    }
+
+    /** Queues [intent] unless it's a shortcut request that was already handled (replayed by Android, see ShortcutActivity). */
+    private fun accept(intent: Intent) {
+        val request = intent.getLongExtra(ShortcutActivity.EXTRA_REQUEST, 0)
+        if (request != 0L) {
+            val prefs = getSharedPreferences("launch", MODE_PRIVATE)
+            if (request <= prefs.getLong("lastRequest", 0)) return
+            prefs.edit().putLong("lastRequest", request).apply()
+        }
         pendingIntent.value = intent
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Only a fresh start carries a new request; after recreation the intent was already handled.
-        if (savedInstanceState == null) pendingIntent.value = intent
+        // Only a fresh start carries a new request; after recreation or reopening from Recents it was already handled.
+        val fromRecents = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        if (savedInstanceState == null && !fromRecents) accept(intent)
         enableEdgeToEdge()
         val app = application as KartkaApp
         setContent {

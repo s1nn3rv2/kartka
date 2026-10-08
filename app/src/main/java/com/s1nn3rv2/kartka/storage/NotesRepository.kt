@@ -61,7 +61,8 @@ class NotesRepository(val root: File) {
     /** Creates an empty note named after [title] (or the current date and time) in [folder]; returns its path. */
     fun create(folder: String, title: String): String {
         val dir = file(folder).apply { mkdirs() }
-        val name = PathRules.unique(PathRules.fileName(title) ?: "${java.time.LocalDateTime.now().toString().take(19).replace(':', '-')}.md") {
+        val stamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH-mm"))
+        val name = PathRules.unique(PathRules.fileName(title) ?: "$stamp.md") {
             File(dir, it).exists()
         }
         File(dir, name).createNewFile()

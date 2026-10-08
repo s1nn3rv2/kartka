@@ -8,7 +8,7 @@
         android:shortcutShortLabel="@string/shortcut_new_note">
         <intent
             android:action="com.s1nn3rv2.kartka.NEW_NOTE"
-            android:targetClass="com.s1nn3rv2.kartka.MainActivity"
+            android:targetClass="com.s1nn3rv2.kartka.ShortcutActivity"
             android:targetPackage="com.s1nn3rv2.kartka" />
     </shortcut>
     <shortcut
@@ -18,7 +18,7 @@
         android:shortcutShortLabel="@string/shortcut_new_scratch">
         <intent
             android:action="com.s1nn3rv2.kartka.NEW_SCRATCH"
-            android:targetClass="com.s1nn3rv2.kartka.MainActivity"
+            android:targetClass="com.s1nn3rv2.kartka.ShortcutActivity"
             android:targetPackage="com.s1nn3rv2.kartka" />
     </shortcut>
 </shortcuts>
