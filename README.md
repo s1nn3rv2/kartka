@@ -1,5 +1,12 @@
 # Kartka
 
+
+## NOTE: This project is fully vibecoded. I have not checked anything, I just wanted to make an app quickly for quick notes that did not create it's own folder or overwrite my own markdown files. That's it.
+### If you find any bugs, you can report them in issues or make a pull request.
+### I may rewrite this app in future from scratch, I will see.
+
+Everything below is AI Slop:
+
 A private, local-first markdown notes app for Android. There is no database and no account: Kartka works directly on
 a folder of `.md` files that you choose, keeps its folder structure, and never changes a file you didn't edit. Sync
 the folder with [Syncthing](https://syncthing.net/) (or anything else) and the same notes work in any editor on
@@ -44,14 +51,15 @@ Download the APK from the [latest release](../../releases/latest), or let
 ### Verify the download
 
 Every release is signed with the same key. To check that an APK really comes from this repository, compare its
-signing certificate with this SHA-256 fingerprint, for example with [AppVerifier](https://github.com/soupslurpr/AppVerifier):
+signing certificate with this SHA-256 fingerprint, for example with [AppVerifier](https://github.com/soupslurpr/AppVerifier)
+(copy both lines):
 
 ```
 com.s1nn3rv2.kartka
-SHA-256 fingerprint of the signing certificate: (added with the first release)
+44:4F:05:BD:39:35:14:A2:80:4E:D7:FE:1B:7E:E1:D5:13:D5:40:74:52:5D:BF:BF:DA:78:40:EF:BD:76:D7:64
 ```
 
-Each release also has a `.sha256` file with the checksum of the APK file itself (`sha256sum -c kartka-v1.0.apk.sha256`).
+Each release also has a `.sha256` file with the checksum of the APK file itself (`sha256sum -c kartka-v1.0.0.apk.sha256`).
 
 ### Build it yourself
 
