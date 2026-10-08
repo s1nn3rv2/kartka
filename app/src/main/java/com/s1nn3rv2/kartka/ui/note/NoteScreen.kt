@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.material.icons.outlined.Share
+import android.content.Intent
 import com.s1nn3rv2.kartka.index.normalize
 import com.s1nn3rv2.kartka.Notes
 import androidx.compose.material3.SuggestionChipDefaults
@@ -330,6 +332,18 @@ fun NoteScreen(
                                 onClick = {
                                     showMenu = false
                                     showBacklinks = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    val body = if (editing) editor?.text?.toString() else session.text
+                                    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                        .putExtra(Intent.EXTRA_SUBJECT, PathRules.title(session.path.substringAfterLast('/')))
+                                        .putExtra(Intent.EXTRA_TEXT, body.orEmpty())
+                                    context.startActivity(Intent.createChooser(send, null))
                                 },
                             )
                             DropdownMenuItem(
