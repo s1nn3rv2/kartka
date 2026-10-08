@@ -46,4 +46,10 @@ class PreviewTest {
         val byEdit = groupNotes(notes, pins = emptySet(), SortOrder.EDITED, restLabel = "Notes")
         assertEquals(listOf("Notes" to listOf("Żaba", "Ala", "Łódź", "Zebra")), byEdit.map { (l, n) -> l to n.map { it.title } })
     }
+
+    // Markdown symbols aren't words; Polish words and contractions count once.
+    @Test fun countsWords() {
+        assertEquals(5, textStats("# Zażółć\n- **gęślą** jaźń, it's [[x]]").words)
+        assertEquals(2, textStats("word ".repeat(400)).readingMinutes)
+    }
 }

@@ -66,3 +66,13 @@ fun groupNotes(all: List<NoteMeta>, pins: Set<String>, sort: SortOrder, restLabe
         }
     }
 }
+
+data class TextStats(val words: Int, val characters: Int, val readingMinutes: Int)
+
+private val word = Regex("""[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*""")
+
+/** Words (letters and digits, so markdown symbols don't count), characters, and reading time at 200 words a minute. */
+fun textStats(text: String): TextStats {
+    val words = word.findAll(text).count()
+    return TextStats(words, text.length, words / 200)
+}

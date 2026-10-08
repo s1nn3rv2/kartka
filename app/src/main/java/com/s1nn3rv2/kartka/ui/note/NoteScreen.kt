@@ -1,5 +1,9 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.Info
+import com.s1nn3rv2.kartka.ui.MenuAction
+import com.s1nn3rv2.kartka.ui.GroupedMenu
 import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.material.icons.filled.PushPin
@@ -64,8 +68,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.SegmentedListItem
@@ -179,6 +181,7 @@ fun NoteScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
     var showBacklinks by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
     // Set while the cursor is after an unfinished `[[`: where the name starts and what's typed so far.
     var linkQuery by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
@@ -274,6 +277,10 @@ fun NoteScreen(
         )
     }
 
+    if (showInfo) {
+        NoteInfoSheet(session.path, editor?.takeIf { editing }?.text?.toString() ?: text.orEmpty(), app.notes) { showInfo = false }
+    }
+
     if (showBacklinks) {
         val linking = remember(session.path) { app.notes.backlinks(session.path) }
         NoteListSheet(
@@ -332,63 +339,36 @@ fun NoteScreen(
                         IconButton(onClick = { commitTitle(); showMenu = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More")
                         }
-                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                            if (session.isScratch) {
-                                DropdownMenuItem(
-                                    text = { Text("Keep") },
-                                    leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
-                                    onClick = {
-                                        showMenu = false
-                                        session.move(app.notes.defaultFolder)
-                                    },
-                                )
-                            }
-                            val pinned = session.path in app.notes.pins.collectAsStateWithLifecycle().value
-                            DropdownMenuItem(
-                                text = { Text(if (pinned) "Unpin" else "Pin") },
-                                leadingIcon = { Icon(if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
-                                onClick = {
-                                    showMenu = false
-                                    app.notes.setPinned(listOf(session.path), !pinned)
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Backlinks") },
-                                leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) },
-                                onClick = {
-                                    showMenu = false
-                                    showBacklinks = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Share") },
-                                leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
-                                onClick = {
-                                    showMenu = false
-                                    val body = if (editing) editor?.text?.toString() else session.text
-                                    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                        .putExtra(Intent.EXTRA_SUBJECT, PathRules.title(session.path.substringAfterLast('/')))
-                                        .putExtra(Intent.EXTRA_TEXT, body.orEmpty())
-                                    context.startActivity(Intent.createChooser(send, null))
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Move to folder") },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, contentDescription = null) },
-                                onClick = {
-                                    showMenu = false
-                                    showMove = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete") },
-                                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
-                                onClick = {
-                                    showMenu = false
-                                    app.scope.launch { session.trash()?.let(onTrashed) }
-                                },
-                            )
-                        }
+                        val pinned = session.path in app.notes.pins.collectAsStateWithLifecycle().value
+                        fun close(then: () -> Unit) = { showMenu = false; then() }
+                        GroupedMenu(
+                            expanded = showMenu,
+                            onDismiss = { showMenu = false },
+                            groups = listOf(
+                                listOfNotNull(
+                                    if (session.isScratch) MenuAction("Keep", Icons.Outlined.Bookmark, onClick = close { session.move(app.notes.defaultFolder) }) else null,
+                                    MenuAction(if (pinned) "Unpin" else "Pin", if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                        onClick = close { app.notes.setPinned(listOf(session.path), !pinned) }),
+                                    MenuAction("Share", Icons.Outlined.Share, onClick = close {
+                                        val body = if (editing) editor?.text?.toString() else session.text
+                                        val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                            .putExtra(Intent.EXTRA_SUBJECT, PathRules.title(session.path.substringAfterLast('/')))
+                                            .putExtra(Intent.EXTRA_TEXT, body.orEmpty())
+                                        context.startActivity(Intent.createChooser(send, null))
+                                    }),
+                                ),
+                                listOf(
+                                    MenuAction("Backlinks", Icons.Outlined.Link, onClick = close { showBacklinks = true }),
+                                    MenuAction("Note info", Icons.Outlined.Info, onClick = close { showInfo = true }),
+                                ),
+                                listOf(
+                                    MenuAction("Move to folder", Icons.AutoMirrored.Outlined.DriveFileMove, onClick = close { showMove = true }),
+                                    MenuAction("Delete", Icons.Outlined.Delete, danger = true, onClick = close {
+                                        app.scope.launch { session.trash()?.let(onTrashed) }
+                                    }),
+                                ),
+                            ),
+                        )
                     }
                     FilledTonalIconButton(
                         onClick = {

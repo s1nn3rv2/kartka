@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.ui.settings
 
+import com.s1nn3rv2.kartka.ui.GroupedMenu
+import com.s1nn3rv2.kartka.ui.MenuAction
 import com.s1nn3rv2.kartka.SortOrder
 import com.s1nn3rv2.kartka.setAppName
 import com.s1nn3rv2.kartka.AppName
@@ -38,8 +40,6 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -216,18 +216,19 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                         leadingContent = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
                         supportingContent = { Text(defaultFolder.ifEmpty { "Notes folder" }) },
                     ) { Text("New notes go to") }
-                    DropdownMenu(expanded = pickingDefault, onDismissRequest = { pickingDefault = false }) {
-                        for (folder in state.folders) {
-                            DropdownMenuItem(
-                                text = { Text(folder.ifEmpty { "Notes folder" }) },
-                                onClick = {
+                    GroupedMenu(
+                        expanded = pickingDefault,
+                        onDismiss = { pickingDefault = false },
+                        groups = listOf(
+                            state.folders.map { folder ->
+                                MenuAction(folder.ifEmpty { "Notes folder" }, selected = folder == defaultFolder) {
                                     notes.defaultFolder = folder
                                     defaultFolder = folder
                                     pickingDefault = false
-                                },
-                            )
-                        }
-                    }
+                                }
+                            },
+                        ),
+                    )
                 }
             }
         }
