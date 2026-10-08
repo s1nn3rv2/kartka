@@ -59,6 +59,14 @@ class NotesRepositoryTest {
         assertTrue(File(tmp.root, "Recipes/Pancakes.md").exists())
     }
 
+    // A note last edited months ago must not be purged the moment it is trashed: 30 days count from deletion.
+    @Test fun trashCountsFromDeletion() {
+        val r = repo()
+        put("old.md", "x").setLastModified(1000)
+        r.trash("old.md")
+        assertEquals(0, r.purge(NotesRepository.TRASH, cutoff = System.currentTimeMillis() - 60_000))
+    }
+
     @Test fun purgeDeletesOnlyOldNotes() {
         val r = repo()
         put(".scratch/old.md", "").setLastModified(1000)

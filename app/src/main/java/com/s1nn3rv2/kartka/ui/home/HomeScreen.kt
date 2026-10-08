@@ -31,7 +31,10 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AppBarWithSearch
@@ -110,6 +113,7 @@ fun HomeScreen(
     onNewNote: (folder: String) -> Unit,
     onNewScratch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHidden: (trash: Boolean) -> Unit,
     onBack: (() -> Unit)?,
 ) {
     val state by notes.state.collectAsStateWithLifecycle()
@@ -130,6 +134,10 @@ fun HomeScreen(
                     onOpenSettings = {
                         scope.launch { drawer.close() }
                         onOpenSettings()
+                    },
+                    onOpenHidden = { trash ->
+                        scope.launch { drawer.close() }
+                        onOpenHidden(trash)
                     },
                 )
             },
@@ -461,7 +469,7 @@ private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onN
 
 /** The sidebar: every folder, nested by indentation, with how many notes sit directly in it. */
 @Composable
-private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpenSettings: () -> Unit) {
+private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpenSettings: () -> Unit, onOpenHidden: (trash: Boolean) -> Unit) {
     val rows = remember(tree) {
         buildList {
             fun add(node: FolderNode, depth: Int) {
@@ -490,6 +498,21 @@ private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpe
                 )
             }
         }
+        HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
+        NavigationDrawerItem(
+            label = { Text("Scratch") },
+            icon = { Icon(Icons.Outlined.Bolt, contentDescription = null) },
+            selected = false,
+            onClick = { onOpenHidden(false) },
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        NavigationDrawerItem(
+            label = { Text("Trash") },
+            icon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+            selected = false,
+            onClick = { onOpenHidden(true) },
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
         NavigationDrawerItem(
             label = { Text("Settings") },
             icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },

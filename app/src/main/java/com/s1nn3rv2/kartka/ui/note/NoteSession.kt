@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.s1nn3rv2.kartka.Notes
 import com.s1nn3rv2.kartka.storage.LoadedNote
+import com.s1nn3rv2.kartka.storage.NotesRepository
 import com.s1nn3rv2.kartka.storage.PathRules
 import com.s1nn3rv2.kartka.storage.TextFormat
 import kotlinx.coroutines.CoroutineScope
@@ -85,7 +86,11 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
 
     private suspend fun save() = fileLock.withLock { saveLocked() }
 
+    /** Set once the note was moved to the trash: nothing may write it again (that would recreate the file). */
+    private var closed = false
+
     private suspend fun saveLocked() {
+        if (closed) return
         pendingFromEditor?.let { current ->
             pendingFromEditor = null
             current().also { editorText = it; text = it }
@@ -111,6 +116,30 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
             notes.refreshSoon()
         }
     }
+
+    /** Saves, then moves the note into [folder]. */
+    fun move(folder: String) {
+        val repo = notes.repository ?: return
+        scope.launch {
+            fileLock.withLock {
+                saveLocked()
+                path = withContext(Dispatchers.IO) { repo.move(path, folder) }
+            }
+            notes.refreshSoon()
+        }
+    }
+
+    /** Saves, then moves the note to the trash; returns its path there (for undo), or null if that failed. */
+    suspend fun trash(): String? {
+        val repo = notes.repository ?: return null
+        return fileLock.withLock {
+            saveLocked()
+            closed = true
+            runCatching { withContext(Dispatchers.IO) { repo.trash(path) } }.getOrNull()
+        }.also { notes.refreshSoon() }
+    }
+
+    val isScratch get() = path.startsWith(NotesRepository.SCRATCH + "/")
 
     /** Reloads when the file changed on disk (e.g. Syncthing) and nothing here is unsaved. True if it reloaded. */
     suspend fun reloadIfChangedOnDisk(): Boolean {

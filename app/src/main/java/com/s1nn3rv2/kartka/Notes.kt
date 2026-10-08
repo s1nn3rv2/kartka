@@ -142,6 +142,24 @@ class Notes(context: Context) {
     /** The prepared note for [path], handed out once. */
     fun takePrepared(path: String): Prepared? = prepared?.takeIf { it.path == path }?.also { prepared = null }
 
+    /** Notes in the trash or scratch folder, newest first. */
+    suspend fun hidden(folder: String): List<NoteMeta> =
+        withContext(Dispatchers.IO) { repository?.listHidden(folder).orEmpty() }
+
+    /** Moves a trashed note back to where it was; returns its path. */
+    suspend fun restore(trashPath: String): String? = io { it.restore(trashPath) }
+
+    /** Deletes a file for good (trash and scratch only). */
+    suspend fun deleteForever(path: String) = io { it.delete(path) }
+
+    suspend fun emptyTrash() = io { repo -> repo.listHidden(NotesRepository.TRASH).forEach { repo.delete(it.path) } }
+
+    /** Moves a note into [folder] (a scratch note "kept" moves out of the scratch folder); returns the new path. */
+    suspend fun move(path: String, folder: String): String? = io { it.move(path, folder) }
+
+    private suspend fun <T> io(block: (NotesRepository) -> T): T? =
+        withContext(Dispatchers.IO) { repository?.let(block) }.also { refreshSoon() }
+
     suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.Default) { search(index.values, query) }
 
     /** Notes that are indexed, for things like backlinks later. */

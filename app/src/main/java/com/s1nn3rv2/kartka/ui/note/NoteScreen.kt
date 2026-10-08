@@ -26,6 +26,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,7 +38,12 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -62,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.s1nn3rv2.kartka.KartkaApp
 import com.s1nn3rv2.kartka.editor.EditorColors
 import com.s1nn3rv2.kartka.editor.MarkdownEditText
@@ -79,7 +90,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit) {
+fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit, onTrashed: (trashPath: String) -> Unit) {
     // Opened notes arrive already read and parsed, so the first frame shows the content (no blank flash).
     val prepared = remember(path) { app.notes.takePrepared(path) }
     val session = remember(path) { NoteSession(app.notes, path, app.scope, prepared?.loaded) }
@@ -101,6 +112,8 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
     var folded by remember(path) { mutableStateOf(prepared?.blocks?.let(::initialFolds)) }
     val listState = rememberLazyListState()
     var showOutline by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showMove by remember { mutableStateOf(false) }
     LaunchedEffect(blocks) {
         val b = blocks ?: return@LaunchedEffect
         if (folded == null || folded!!.any { it >= b.size }) {
@@ -175,6 +188,19 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
         )
     }
 
+    if (showMove) {
+        val folders by app.notes.state.collectAsStateWithLifecycle()
+        MoveDialog(
+            folders = folders.folders,
+            current = session.path.substringBeforeLast('/', ""),
+            onPick = { folder ->
+                showMove = false
+                session.move(folder)
+            },
+            onDismiss = { showMove = false },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -200,6 +226,39 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
                     if (blocks?.any { it is MdHeading } == true) {
                         IconButton(onClick = { showOutline = true }, shapes = IconButtonDefaults.shapes()) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Outline")
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { showMenu = true }, shapes = IconButtonDefaults.shapes()) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            if (session.isScratch) {
+                                DropdownMenuItem(
+                                    text = { Text("Keep") },
+                                    leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
+                                    onClick = {
+                                        showMenu = false
+                                        session.move(app.notes.defaultFolder)
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Move to folder") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    showMove = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    app.scope.launch { session.trash()?.let(onTrashed) }
+                                },
+                            )
                         }
                     }
                     FilledTonalIconButton(
@@ -285,6 +344,27 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
 private fun initialFolds(blocks: List<MdBlock>) = blocks.indices.filter { (blocks[it] as? MdListItem)?.collapsed == true }.toSet()
 
 /** The note's title, edited in place in the top bar; it becomes the file name when editing ends. */
+/** Picks the folder to move a note into. */
+@Composable
+private fun MoveDialog(folders: List<String>, current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Move to folder") },
+        text = {
+            LazyColumn {
+                items(folders.filter { it != current }, key = { it }) { folder ->
+                    ListItem(
+                        onClick = { onPick(folder) },
+                        leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                    ) { Text(folder.ifEmpty { "Notes folder" }) }
+                }
+            }
+        },
+        confirmButton = { },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 /** The headings of the note in order; tapping one jumps to it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

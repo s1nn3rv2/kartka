@@ -83,8 +83,11 @@ class NotesRepository(val root: File) {
         return moveTo(path, join(folder, name))
     }
 
-    /** Moves the note to `.trash/<its path>`, so restoring is just moving it back. */
-    fun trash(path: String): String = moveTo(path, uniquePath("$TRASH/$path"))
+    /**
+     * Moves the note to `.trash/<its path>`, so restoring is just moving it back. The file is stamped with the
+     * deletion time: the trash is purged by modified time, and a note last edited long ago must still get its 30 days.
+     */
+    fun trash(path: String): String = moveTo(path, uniquePath("$TRASH/$path")).also { file(it).setLastModified(System.currentTimeMillis()) }
 
     /** Moves a trashed note back to where it came from (numbered if that name is taken again). */
     fun restore(trashPath: String): String = moveTo(trashPath, uniquePath(trashPath.removePrefix("$TRASH/")))
