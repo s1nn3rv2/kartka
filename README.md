@@ -38,8 +38,8 @@ The app has no internet permission, no analytics and no crash reporting.
 
 ## Install
 
-There are no prebuilt releases yet. To build it yourself you need Android Studio (or JDK 17+ and the Android
-SDK):
+There are no prebuilt releases yet. To build it yourself you need the Android SDK (easiest with Android Studio).
+Gradle downloads the Java version it needs on its own:
 
 ```sh
 ./gradlew :app:assembleRelease
