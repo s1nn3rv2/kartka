@@ -26,6 +26,7 @@ android {
             optimization {
                 enable = true
             }
+            proguardFiles("proguard-rules.pro")
         }
     }
     compileOptions {
@@ -55,6 +56,7 @@ dependencies {
     implementation(libs.commonmark.ext.task.list.items)
     implementation(libs.commonmark.ext.autolink)
     implementation(libs.commonmark.ext.footnotes)
+    implementation(libs.jlatexmath.android)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

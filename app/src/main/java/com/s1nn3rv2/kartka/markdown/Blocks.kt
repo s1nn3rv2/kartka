@@ -30,9 +30,9 @@ import org.commonmark.node.StrongEmphasis
 import org.commonmark.node.Text
 import org.commonmark.node.ThematicBreak
 
-enum class InlineStyle { STRONG, EMPH, STRIKE, CODE, LINK, WIKILINK, TAG, HIGHLIGHT, FOOTNOTE }
+enum class InlineStyle { STRONG, EMPH, STRIKE, CODE, LINK, WIKILINK, TAG, HIGHLIGHT, FOOTNOTE, MATH }
 
-/** [url]: the link address, the wiki link target, the tag name, or the footnote label. */
+/** [url]: the link address, the wiki link target, the tag name, the footnote label, or the LaTeX of inline math. */
 data class InlineSpan(val start: Int, val end: Int, val style: InlineStyle, val url: String? = null)
 
 /** Rendered inline text: plain characters plus style ranges over them. */
@@ -67,6 +67,9 @@ data class MdFootnote(val number: String, val label: String, val text: Inline, o
 
 /** A paragraph holding only an image of a local file; [url] is the path as written, relative to the note's folder. */
 data class MdImage(val url: String, val alt: String, override val indent: Int) : MdBlock
+
+/** A `$$` math block. */
+data class MdMath(val latex: String, override val indent: Int) : MdBlock
 
 data class MdCode(val code: String, val language: String?, override val indent: Int) : MdBlock
 data class MdRule(override val indent: Int) : MdBlock
@@ -116,6 +119,7 @@ object BlockBuilder {
                     is ThematicBreak -> out += MdRule(indent)
                     is TableBlock -> out += table(n, indent)
                     is FootnoteDefinition -> footnote(n, indent, quote)
+                    is MathBlock -> out += MdMath(n.latex, indent)
                     is HtmlBlock -> out += MdParagraph(Inline(n.literal.trimEnd()), indent, quote)
                     else -> blocks(n.firstChild, indent, quote)
                 }
@@ -253,6 +257,7 @@ object BlockBuilder {
                         is WikiLink -> styled(c, InlineStyle.WIKILINK, c.target) { sb.append((it as WikiLink).label) }
                         is Tag -> styled(c, InlineStyle.TAG, c.name) { sb.append('#').append((it as Tag).name) }
                         is Highlight -> styled(c, InlineStyle.HIGHLIGHT, walk = ::walk)
+                        is MathInline -> styled(c, InlineStyle.MATH, c.latex) { sb.append((it as MathInline).latex) }
                         is FootnoteReference -> styled(c, InlineStyle.FOOTNOTE, c.label) { (it as FootnoteReference).label.let { l -> sb.append(numbers[l] ?: l) } }
                         is Image -> styled(c, InlineStyle.LINK, c.destination) { img ->
                             val before = sb.length

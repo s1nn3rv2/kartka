@@ -7,14 +7,14 @@ import java.time.temporal.ChronoUnit
 
 private val lineMarker = Regex("""^\s*(#{1,6}\s+|[-*+]\s+(\[[ xX]]\s+)?|>\s*|\[!\w+][+-]?\s*|\d{1,9}[.)]\s+)*""")
 private val property = Regex("""^\s*[\w-]+::""")
-private val inlineMarks = Regex("""\*\*|__|~~|==|`|\[\[(?:[^]|\n]*\|)?([^]\n]*)]]|!?\[([^]]*)]\([^)]*\)""")
+private val inlineMarks = Regex("""\*\*|__|~~|==|`|\[\[(?:[^]|\n]*\|)?([^]\n]*)]]|!?\[([^]]*)]\([^)]*\)|\[\^[^]\s]*]:?\s*""")
 
-/** A one-glance preview of a note: its first text lines without markdown symbols, code fences or Logseq properties. */
+/** A one-glance preview of a note: its first text lines without markdown symbols, code, math blocks or Logseq properties. */
 fun preview(text: String, max: Int = 160): String {
     val sb = StringBuilder()
     var inCode = false
     for (raw in text.lineSequence()) {
-        if (raw.trimStart().startsWith("```")) {
+        if (raw.trimStart().startsWith("```") || raw.trim() == "$$") {
             inCode = !inCode
             continue
         }

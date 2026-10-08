@@ -60,6 +60,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.s1nn3rv2.kartka.markdown.MdMath
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.Image
 import java.io.File
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.text.style.BaselineShift
@@ -160,8 +172,6 @@ private fun Block(
     onLink: (InlineSpan) -> Unit,
     imageFile: (String) -> File?,
 ) {
-    @Composable
-    fun Inline.annotated() = annotated(onLink)
     val colors = MaterialTheme.colorScheme
     val type = MaterialTheme.typography
     val modifier = Modifier.padding(
@@ -173,8 +183,8 @@ private fun Block(
         bottomStart = if (joinNext) 0.dp else 12.dp, bottomEnd = if (joinNext) 0.dp else 12.dp,
     )
     when (block) {
-        is MdHeading -> Text(
-            block.text.annotated(),
+        is MdHeading -> MdText(
+            block.text, onLink,
             style = when (block.level) {
                 1 -> type.headlineMedium
                 2 -> type.headlineSmall
@@ -188,15 +198,15 @@ private fun Block(
 
         is MdParagraph -> if (block.quote != null) {
             val (container, content) = calloutColors(block.quote)
-            Text(
-                block.text.annotated(),
+            MdText(
+                block.text, onLink,
                 style = type.bodyLarge,
                 color = content,
                 modifier = modifier.fillMaxWidth().background(container, quoteShape)
                     .padding(start = 12.dp, end = 12.dp, top = if (joinPrev) 4.dp else 12.dp, bottom = 12.dp),
             )
         } else {
-            Text(block.text.annotated(), style = type.bodyLarge, modifier = modifier)
+            MdText(block.text, onLink, style = type.bodyLarge, modifier = modifier)
         }
 
         is MdListItem -> Row(modifier) {
@@ -210,8 +220,8 @@ private fun Block(
                     else -> Text(block.marker, style = type.bodyLarge, color = colors.primary)
                 }
             }
-            Text(
-                block.text.annotated(),
+            MdText(
+                block.text, onLink,
                 style = if (block.task?.checked == true) {
                     type.bodyLarge.copy(color = colors.onSurfaceVariant, textDecoration = TextDecoration.LineThrough)
                 } else {
@@ -220,11 +230,13 @@ private fun Block(
             )
         }
 
+        is MdMath -> MathBlockView(block.latex, modifier)
+
         is MdImage -> LocalImage(remember(block.url) { imageFile(block.url) }, block.url, block.alt, modifier)
 
         is MdFootnote -> Row(modifier) {
             Text("${block.number}.", style = type.bodyMedium, color = colors.primary, modifier = Modifier.width(Gutter))
-            Text(block.text.annotated(), style = type.bodyMedium, color = colors.onSurfaceVariant)
+            MdText(block.text, onLink, style = type.bodyMedium, color = colors.onSurfaceVariant)
         }
 
         is MdCode -> Column(modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.surfaceContainerHigh).padding(12.dp)) {
@@ -308,8 +320,8 @@ private fun TableRow(cells: List<Inline>, weights: List<Float>, header: Boolean,
     Row(Modifier.height(IntrinsicSize.Min).then(if (header) Modifier.background(colors.secondaryContainer) else Modifier)) {
         weights.forEachIndexed { i, w ->
             Box(Modifier.weight(w).fillMaxHeight().border(0.5.dp, colors.outlineVariant).padding(8.dp)) {
-                Text(
-                    cells.getOrNull(i)?.annotated(onLink) ?: AnnotatedString(""),
+                MdText(
+                    cells.getOrNull(i) ?: Inline(""), onLink,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (header) FontWeight.Bold else null,
                 )
@@ -318,14 +330,53 @@ private fun TableRow(cells: List<Inline>, weights: List<Float>, header: Boolean,
     }
 }
 
-/** Wiki links and tags are tappable and reported through [onLink]; web links open in the browser. */
+/** Rich text of one block, with inline formulas drawn in place (sized to the text). */
 @Composable
-private fun Inline.annotated(onLink: (InlineSpan) -> Unit): AnnotatedString {
+private fun MdText(
+    inline: Inline,
+    onLink: (InlineSpan) -> Unit,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontWeight: FontWeight? = null,
+) {
+    val maths = inline.spans.filter { it.style == InlineStyle.MATH }
+    if (maths.isEmpty()) {
+        return Text(inline.annotated(onLink, emptyMap()), modifier, color = color, fontWeight = fontWeight, style = style)
+    }
+    val density = LocalDensity.current
+    val ink = color.takeOrElse { style.color.takeOrElse { LocalContentColor.current } }.toArgb()
+    val px = with(density) { style.fontSize.toPx() }
+    val images = remember(maths, px, ink) {
+        maths.mapNotNull { s -> MathRender.render(s.url.orEmpty(), px, ink)?.let { s.start to it } }.toMap()
+    }
+    val content = images.entries.associate { (start, image) ->
+        "math$start" to InlineTextContent(
+            with(density) { Placeholder(image.width.toSp(), image.height.toSp(), PlaceholderVerticalAlign.TextCenter) },
+        ) { Image(image, contentDescription = inline.text.substring(start, inline.spans.first { it.start == start }.end)) }
+    }
+    Text(inline.annotated(onLink, images), modifier, color = color, fontWeight = fontWeight, style = style, inlineContent = content)
+}
+
+/**
+ * Wiki links, tags and footnotes are tappable and reported through [onLink]; web links open in the browser. Inline
+ * math whose start is in [math] becomes an inline content slot ("math<start>"); other math shows as code.
+ */
+@Composable
+private fun Inline.annotated(onLink: (InlineSpan) -> Unit, math: Map<Int, ImageBitmap>): AnnotatedString {
     val colors = MaterialTheme.colorScheme
     val currentOnLink by rememberUpdatedState(onLink)
-    return remember(this, colors) {
+    return remember(this, colors, math.keys) {
         buildAnnotatedString {
-            append(text)
+            // Formulas keep their source as alternate text, so offsets of the other styles stay valid.
+            var pos = 0
+            for (s in spans) {
+                if (s.style != InlineStyle.MATH || s.start !in math) continue
+                append(text, pos, s.start)
+                appendInlineContent("math${s.start}", text.substring(s.start, s.end))
+                pos = s.end
+            }
+            append(text, pos, text.length)
             for (s in spans) when (s.style) {
                 InlineStyle.STRONG -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), s.start, s.end)
                 InlineStyle.EMPH -> addStyle(SpanStyle(fontStyle = FontStyle.Italic), s.start, s.end)
@@ -353,6 +404,9 @@ private fun Inline.annotated(onLink: (InlineSpan) -> Unit): AnnotatedString {
                     ) { currentOnLink(s) },
                     s.start, s.end,
                 )
+                InlineStyle.MATH -> if (s.start !in math) {
+                    addStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = colors.error), s.start, s.end)
+                }
                 InlineStyle.HIGHLIGHT -> addStyle(SpanStyle(background = colors.tertiaryContainer, color = colors.onTertiaryContainer), s.start, s.end)
             }
         }

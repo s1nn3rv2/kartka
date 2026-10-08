@@ -47,6 +47,12 @@ class StyleBuilderTest {
         assertEquals(listOf("1"), texts(md, Kind.CODE_NUMBER))
     }
 
+    @Test fun mathIsColoredAsCode() {
+        val md = "a \$x_1\$ b\n\n\$\$\ny\n\$\$\nafter\n"
+        assertEquals(listOf("\$x_1\$"), texts(md, Kind.INLINE_CODE))
+        assertEquals(listOf("\$\$\ny\n\$\$"), texts(md, Kind.CODE_BLOCK))
+    }
+
     @Test fun tableSyntaxIsDimmed() {
         val md = "| a | b |\n|---|---|\n| 1 | 2 |\n"
         assertEquals(6 + 1, texts(md, Kind.MARKER).size)

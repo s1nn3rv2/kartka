@@ -93,4 +93,14 @@ class BlocksTest {
         assertTrue(blocks[1] is MdParagraph)
         assertTrue(blocks[2] is MdParagraph)
     }
+
+    // Formulas keep backslashes and underscores (markdown would eat them); prices with dollars stay text.
+    @Test fun math() {
+        val blocks = BlockBuilder.build("Area \$\\pi r_1^2\$ costs \$5 or \$10.\n\n\$\$\n\\frac{a}{b}\n\$\$\n\n\$\$ x_1 \$\$\n")
+        val p = blocks[0] as MdParagraph
+        assertEquals(listOf("\\pi r_1^2"), p.text.spans.filter { it.style == InlineStyle.MATH }.map { it.url })
+        assertTrue(p.text.text.endsWith("costs \$5 or \$10."))
+        assertEquals(MdMath("\\frac{a}{b}", 0), blocks[1])
+        assertEquals(MdMath("x_1", 0), blocks[2])
+    }
 }

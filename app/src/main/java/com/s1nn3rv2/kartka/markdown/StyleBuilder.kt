@@ -76,6 +76,7 @@ object StyleBuilder {
                 is Strikethrough -> delimited(node, node.openingDelimiter.length, Kind.STRIKE)
                 is Highlight -> delimited(node, 2, Kind.HIGHLIGHT)
                 is WikiLink -> node.sourceSpans.singleOrNull()?.let { delimited(node, 2, Kind.LINK) }
+                is MathInline -> node.sourceSpans.firstOrNull()?.let { add(it.inputIndex, node.sourceSpans.last().end, Kind.INLINE_CODE) }
                 is Tag -> node.sourceSpans.singleOrNull()?.let { add(it.inputIndex, it.end, Kind.TAG) }
                 is FootnoteReference -> node.sourceSpans.firstOrNull()?.let { add(it.inputIndex, it.inputIndex + node.label.length + 3, Kind.LINK) }
                 else -> visitChildren(node)
@@ -166,6 +167,7 @@ object StyleBuilder {
         }
 
         override fun visit(block: CustomBlock) {
+            if (block is MathBlock) return codeBlock(block)
             if (block is FootnoteDefinition) {
                 // The `[^label]:` prefix is syntax.
                 block.sourceSpans.firstOrNull()?.let { add(it.inputIndex, it.inputIndex + block.label.length + 4, Kind.MARKER) }

@@ -17,6 +17,10 @@ class PreviewTest {
         assertEquals("See my plan and Other · Careful", preview("See [[Plan|my plan]] and [[Other]]\n> [!warning] Careful\n"))
     }
 
+    @Test fun footnotesAndMathBlocks() {
+        assertEquals("Claim · Note.", preview("Claim[^1]\n\$\$\nx^2\n\$\$\n[^1]: Note.\n"))
+    }
+
     @Test fun truncates() {
         assertEquals("aaaaa…", preview("a".repeat(20), max = 5))
     }

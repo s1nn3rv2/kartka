@@ -17,6 +17,8 @@ object Md {
                 FootnotesExtension.create(),
             ),
         )
+        .customBlockParserFactory(MathBlockParser.Factory())
+        .customInlineContentParserFactory(MathInlineParser.Factory())
         .postProcessor(NotesInlinesPostProcessor())
         .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
         .build()
