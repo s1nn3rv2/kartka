@@ -73,16 +73,22 @@ object StyleBuilder {
             for (i in headings.indices) headings[i].let { headings[i] = it.copy(start = dedent.map(it.start)) }
         }
         indents(text, out)
-        // List item indent columns come from the original text, since the parser may have seen it dedented.
+        // Android applies paragraph spans only from the paragraph start, so list items start at their line start.
+        // Indent columns come from the original text, since the parser may have seen it dedented.
         for (i in out.indices) out[i].let { r ->
-            if (r.kind == Kind.LIST_ITEM) out[i] = r.copy(level = indentColumns(text, r.start))
+            if (r.kind == Kind.LIST_ITEM) out[i] = r.copy(start = lineStartOf(text, r.start), level = indentColumns(text, r.start))
         }
         return MarkdownStyles(out, blocks, headings)
     }
 
-    private fun indentColumns(text: String, offset: Int): Int {
+    private fun lineStartOf(text: String, offset: Int): Int {
         var i = offset
         while (i > 0 && text[i - 1] != '\n') i--
+        return i
+    }
+
+    private fun indentColumns(text: String, offset: Int): Int {
+        var i = lineStartOf(text, offset)
         var cols = 0
         while (i < text.length && (text[i] == ' ' || text[i] == '\t')) {
             cols += if (text[i] == '\t') 4 - cols % 4 else 1
