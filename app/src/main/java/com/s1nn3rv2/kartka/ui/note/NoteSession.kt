@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.s1nn3rv2.kartka.Notes
+import com.s1nn3rv2.kartka.storage.LoadedNote
 import com.s1nn3rv2.kartka.storage.PathRules
 import com.s1nn3rv2.kartka.storage.TextFormat
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +20,7 @@ import kotlinx.coroutines.withContext
  * One open note: its text, how its bytes were stored, and saving. Saves run on [scope] (app-wide, main thread), so a
  * pending save still completes after the screen closes.
  */
-class NoteSession(private val notes: Notes, path: String, private val scope: CoroutineScope) {
+class NoteSession(private val notes: Notes, path: String, private val scope: CoroutineScope, initial: LoadedNote? = null) {
     /** Changes when the note is renamed. */
     var path by mutableStateOf(path)
         private set
@@ -36,15 +37,22 @@ class NoteSession(private val notes: Notes, path: String, private val scope: Cor
     private var saveJob: Job? = null
     private var pendingFromEditor: (() -> String)? = null
 
-    val hasUnsavedChanges get() = pendingFromEditor != null || text != savedText
+    init {
+        initial?.let(::apply)
+    }
 
-    suspend fun load() {
-        val repo = notes.repository ?: return
-        val loaded = withContext(Dispatchers.IO) { repo.read(path) }
+    private fun apply(loaded: LoadedNote) {
         format = loaded.format
         savedText = loaded.text
         diskModified = loaded.modified
         text = loaded.text
+    }
+
+    val hasUnsavedChanges get() = pendingFromEditor != null || text != savedText
+
+    suspend fun load() {
+        val repo = notes.repository ?: return
+        apply(withContext(Dispatchers.IO) { repo.read(path) })
     }
 
     /** A change made outside the editor (a checkbox tap): shown and saved right away. */

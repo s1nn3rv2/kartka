@@ -3,7 +3,6 @@ package com.s1nn3rv2.kartka
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.Environment
-import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
@@ -74,6 +73,10 @@ private fun App(app: KartkaApp) {
     }
     // ponytail: the back stack is not kept across process death; save it once deep links or restore matter.
     val backStack = remember { mutableStateListOf<Route>(Route.Home) }
+    fun openNote(path: String, isNew: Boolean = false) = scope.launch {
+        notes.prepare(path)
+        backStack += Route.Note(path, isNew)
+    }
     val activity = LocalActivity.current
     // The back stack must never become empty: back on the last screen leaves the app instead.
     val back = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) else activity?.finish() }
@@ -89,21 +92,20 @@ private fun App(app: KartkaApp) {
         popTransitionSpec = {
             (slideInHorizontally(slide) { -it / 4 } togetherWith slideOutHorizontally(slide) { it }).apply { targetContentZIndex = -1f }
         },
-        predictivePopTransitionSpec = { edge ->
-            // Swiping from the right edge moves the page left; from the left edge, right.
-            val dir = if (edge == BackEventCompat.EDGE_RIGHT) -1 else 1
-            (slideInHorizontally(slide) { -dir * it / 4 } togetherWith slideOutHorizontally(slide) { dir * it })
-                .apply { targetContentZIndex = -1f }
+        // Always the same direction as a normal back, whichever screen edge the swipe starts from: following the
+        // edge made the page go left or right depending on the thumb, which read as random.
+        predictivePopTransitionSpec = {
+            (slideInHorizontally(slide) { -it / 4 } togetherWith slideOutHorizontally(slide) { it }).apply { targetContentZIndex = -1f }
         },
         entryProvider = entryProvider {
             entry<Route.Home> {
                 HomeScreen(
                     notes = notes,
                     folder = null,
-                    onOpenNote = { backStack += Route.Note(it) },
+                    onOpenNote = { openNote(it) },
                     onOpenFolder = { backStack += Route.Folder(it) },
-                    onNewNote = { folder -> scope.launch { notes.create(folder)?.let { backStack += Route.Note(it, isNew = true) } } },
-                    onNewScratch = { scope.launch { notes.create("", scratch = true)?.let { backStack += Route.Note(it, isNew = true) } } },
+                    onNewNote = { folder -> scope.launch { notes.create(folder)?.let { openNote(it, isNew = true) } } },
+                    onNewScratch = { scope.launch { notes.create("", scratch = true)?.let { openNote(it, isNew = true) } } },
                     onBack = null,
                 )
             }
@@ -111,10 +113,10 @@ private fun App(app: KartkaApp) {
                 HomeScreen(
                     notes = notes,
                     folder = route.path,
-                    onOpenNote = { backStack += Route.Note(it) },
+                    onOpenNote = { openNote(it) },
                     onOpenFolder = { backStack += Route.Folder(it) },
-                    onNewNote = { folder -> scope.launch { notes.create(folder)?.let { backStack += Route.Note(it, isNew = true) } } },
-                    onNewScratch = { scope.launch { notes.create("", scratch = true)?.let { backStack += Route.Note(it, isNew = true) } } },
+                    onNewNote = { folder -> scope.launch { notes.create(folder)?.let { openNote(it, isNew = true) } } },
+                    onNewScratch = { scope.launch { notes.create("", scratch = true)?.let { openNote(it, isNew = true) } } },
                     onBack = { back() },
                 )
             }

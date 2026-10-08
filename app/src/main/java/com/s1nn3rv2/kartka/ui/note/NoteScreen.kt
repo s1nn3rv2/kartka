@@ -69,9 +69,11 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit) {
-    val session = remember(path) { NoteSession(app.notes, path, app.scope) }
+    // Opened notes arrive already read and parsed, so the first frame shows the content (no blank flash).
+    val prepared = remember(path) { app.notes.takePrepared(path) }
+    val session = remember(path) { NoteSession(app.notes, path, app.scope, prepared?.loaded) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(session) { session.load() }
+    LaunchedEffect(session) { if (prepared == null) session.load() }
     // Leaving the note (back, predictive back, process going away) saves whatever is pending.
     DisposableEffect(session) { onDispose { session.saveNow() } }
     LifecycleResumeEffect(session) {
@@ -81,15 +83,15 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
 
     val text = session.text
     var editing by rememberSaveable { mutableStateOf(isNew) }
-    val blocks by produceState<List<MdBlock>?>(null, text) {
-        value = text?.let { withContext(Dispatchers.Default) { BlockBuilder.build(it) } }
+    val blocks by produceState(prepared?.blocks, text) {
+        if (text != null && text !== prepared?.loaded?.text) value = withContext(Dispatchers.Default) { BlockBuilder.build(text) }
     }
     // Null until the blocks arrive; then seeded from Logseq's collapsed:: true. Reset when the text changes shape.
-    var folded by remember(path) { mutableStateOf<Set<Int>?>(null) }
+    var folded by remember(path) { mutableStateOf(prepared?.blocks?.let(::initialFolds)) }
     LaunchedEffect(blocks) {
         val b = blocks ?: return@LaunchedEffect
         if (folded == null || folded!!.any { it >= b.size }) {
-            folded = b.indices.filter { (b[it] as? MdListItem)?.collapsed == true }.toSet()
+            folded = initialFolds(b)
         }
     }
 
@@ -223,6 +225,9 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
         }
     }
 }
+
+/** Folds a note opens with: items Logseq marked `collapsed:: true`. */
+private fun initialFolds(blocks: List<MdBlock>) = blocks.indices.filter { (blocks[it] as? MdListItem)?.collapsed == true }.toSet()
 
 /** The note's title, edited in place in the top bar; it becomes the file name when editing ends. */
 @Composable

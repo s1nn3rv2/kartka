@@ -5,6 +5,9 @@ import android.os.FileObserver
 import com.s1nn3rv2.kartka.index.IndexedNote
 import com.s1nn3rv2.kartka.index.SearchResult
 import com.s1nn3rv2.kartka.index.search
+import com.s1nn3rv2.kartka.markdown.BlockBuilder
+import com.s1nn3rv2.kartka.markdown.MdBlock
+import com.s1nn3rv2.kartka.storage.LoadedNote
 import com.s1nn3rv2.kartka.storage.NoteMeta
 import com.s1nn3rv2.kartka.storage.NotesRepository
 import kotlinx.coroutines.CoroutineScope
@@ -109,6 +112,22 @@ class Notes(context: Context) {
     suspend fun create(folder: String, scratch: Boolean = false): String? = withContext(Dispatchers.IO) {
         repository?.create(if (scratch) NotesRepository.SCRATCH else folder, "")?.also { refreshSoon() }
     }
+
+    /** A note read and parsed ahead of opening it, so its screen has content from the very first frame. */
+    class Prepared(val path: String, val loaded: LoadedNote, val blocks: List<MdBlock>)
+
+    @Volatile private var prepared: Prepared? = null
+
+    /** Reads and parses [path] off the main thread (a few ms; ~30 ms for a 75 KB note); call before opening it. */
+    suspend fun prepare(path: String) {
+        val repo = repository ?: return
+        prepared = runCatching {
+            withContext(Dispatchers.IO) { repo.read(path).let { Prepared(path, it, BlockBuilder.build(it.text)) } }
+        }.getOrNull()
+    }
+
+    /** The prepared note for [path], handed out once. */
+    fun takePrepared(path: String): Prepared? = prepared?.takeIf { it.path == path }?.also { prepared = null }
 
     suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.Default) { search(index.values, query) }
 
