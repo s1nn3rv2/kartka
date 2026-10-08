@@ -99,7 +99,7 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit)
     var prepareEditor by remember(path) { mutableStateOf(isNew) }
     LaunchedEffect(blocks) {
         if (blocks == null) return@LaunchedEffect
-        delay(300)
+        delay(700) // after the open transition, so the ~100 ms of layout can't stutter the slide
         prepareEditor = true
     }
     LaunchedEffect(editor, text) {

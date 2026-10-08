@@ -1,12 +1,19 @@
 package com.s1nn3rv2.kartka
 
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.Environment
+import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -36,7 +45,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as KartkaApp
-        setContent { KartkaTheme { App(app) } }
+        setContent {
+            KartkaTheme {
+                // The window shows through during transitions and at startup; match it to the theme instead of
+                // the platform's plain light or dark background.
+                val background = MaterialTheme.colorScheme.background.toArgb()
+                SideEffect { window.setBackgroundDrawable(ColorDrawable(background)) }
+                App(app)
+            }
+        }
     }
 }
 
@@ -60,9 +77,24 @@ private fun App(app: KartkaApp) {
     val activity = LocalActivity.current
     // The back stack must never become empty: back on the last screen leaves the app instead.
     val back = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) else activity?.finish() }
+    // Settings-style horizontal slides: a new screen slides in over the old one, which shifts a little to the left;
+    // going back (and the predictive back gesture, following the finger) reverses it, with the leaving screen on top.
+    val slide = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     NavDisplay(
         backStack = backStack,
         onBack = { back() },
+        transitionSpec = {
+            slideInHorizontally(slide) { it } togetherWith slideOutHorizontally(slide) { -it / 4 }
+        },
+        popTransitionSpec = {
+            (slideInHorizontally(slide) { -it / 4 } togetherWith slideOutHorizontally(slide) { it }).apply { targetContentZIndex = -1f }
+        },
+        predictivePopTransitionSpec = { edge ->
+            // Swiping from the right edge moves the page left; from the left edge, right.
+            val dir = if (edge == BackEventCompat.EDGE_RIGHT) -1 else 1
+            (slideInHorizontally(slide) { -dir * it / 4 } togetherWith slideOutHorizontally(slide) { dir * it })
+                .apply { targetContentZIndex = -1f }
+        },
         entryProvider = entryProvider {
             entry<Route.Home> {
                 HomeScreen(
