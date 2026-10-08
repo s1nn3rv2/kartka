@@ -10,16 +10,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Snackbars in the app's own surface colors, instead of Material's inverted ones (a white bar in dark mode). */
+/** Snackbars in the theme's primary container color, instead of Material's inverted ones (a white bar in dark mode). */
 @Composable
 fun AppSnackbarHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     SnackbarHost(state, modifier) { data ->
         Snackbar(
             data,
-            containerColor = colors.surfaceContainerHighest,
-            contentColor = colors.onSurface,
-            actionColor = colors.primary,
+            shape = MaterialTheme.shapes.large,
+            containerColor = colors.primaryContainer,
+            contentColor = colors.onPrimaryContainer,
+            actionColor = colors.onPrimaryContainer,
         )
     }
 }
