@@ -126,7 +126,8 @@ class MainActivity : ComponentActivity() {
                 if (hideInRecents) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
-            KartkaTheme(darkTheme = dark) {
+            val dynamicColor by app.settings.dynamicColor.state.collectAsStateWithLifecycle()
+            KartkaTheme(darkTheme = dark, dynamicColor = dynamicColor) {
                 // The window shows through during transitions and at startup; match it to the theme instead of
                 // the platform's plain light or dark background.
                 val background = MaterialTheme.colorScheme.background.toArgb()

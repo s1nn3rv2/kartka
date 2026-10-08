@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.settings
 
+import androidx.compose.ui.Alignment
 import com.s1nn3rv2.kartka.ui.canLock
 import com.s1nn3rv2.kartka.LockAfter
 import com.s1nn3rv2.kartka.TextSize
@@ -69,6 +70,7 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
     val context = LocalContext.current
     val layout by settings.layout.state.collectAsStateWithLifecycle()
     val theme by settings.theme.state.collectAsStateWithLifecycle()
+    val dynamicColor by settings.dynamicColor.state.collectAsStateWithLifecycle()
     val textSize by settings.textSize.state.collectAsStateWithLifecycle()
     val lock by settings.lock.state.collectAsStateWithLifecycle()
     val lockAfter by settings.lockAfter.state.collectAsStateWithLifecycle()
@@ -123,6 +125,17 @@ fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
                     )
                     Text("Theme", style = MaterialTheme.typography.titleMedium)
                     ChoiceToggle(ThemeMode.entries.map { it to it.label }, theme, { settings.theme.value = it })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Material You colors", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Colors from your wallpaper; off uses the standard Material colors",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = dynamicColor, onCheckedChange = { settings.dynamicColor.value = it })
+                    }
                     Text("Text size in notes", style = MaterialTheme.typography.titleMedium)
                     ChoiceToggle(TextSize.entries.map { it to it.label }, textSize, { settings.textSize.value = it })
                 }

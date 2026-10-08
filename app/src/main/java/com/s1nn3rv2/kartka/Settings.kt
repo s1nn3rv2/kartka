@@ -33,6 +33,8 @@ class Settings(context: Context) {
     /** How note lists are shown: rows or a grid of cards. */
     val layout = Pref("layout", NoteLayout.LIST, NoteLayout::valueOf)
     val theme = Pref("theme", ThemeMode.SYSTEM, ThemeMode::valueOf)
+    /** Material You: colors from the wallpaper instead of Material's standard scheme. */
+    val dynamicColor = Pref("dynamicColor", true, String::toBooleanStrict)
     val textSize = Pref("textSize", TextSize.DEFAULT, TextSize::valueOf)
     val lock = Pref("lock", false, String::toBooleanStrict)
     val lockAfter = Pref("lockAfter", LockAfter.MINUTE, LockAfter::valueOf)
