@@ -110,6 +110,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     notes: Notes,
     folder: String?,
+    layout: NoteLayout,
     onOpenNote: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
     onNewNote: (folder: String) -> Unit,
@@ -120,7 +121,6 @@ fun HomeScreen(
     snackbar: SnackbarHostState,
 ) {
     val state by notes.state.collectAsStateWithLifecycle()
-    val layout by notes.layout.collectAsStateWithLifecycle()
     if (folder == null) {
         val scope = rememberCoroutineScope()
         val drawer = rememberDrawerState(DrawerValue.Closed)

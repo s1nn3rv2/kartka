@@ -1,5 +1,16 @@
 package com.s1nn3rv2.kartka.ui.settings
 
+import com.s1nn3rv2.kartka.ui.canLock
+import com.s1nn3rv2.kartka.LockAfter
+import com.s1nn3rv2.kartka.TextSize
+import com.s1nn3rv2.kartka.ThemeMode
+import com.s1nn3rv2.kartka.Settings
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material3.Switch
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -54,8 +65,14 @@ import com.s1nn3rv2.kartka.ui.onboarding.treeUriToPath
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(notes: Notes, onBack: () -> Unit) {
-    val layout by notes.layout.collectAsStateWithLifecycle()
+fun SettingsScreen(notes: Notes, settings: Settings, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val layout by settings.layout.state.collectAsStateWithLifecycle()
+    val theme by settings.theme.state.collectAsStateWithLifecycle()
+    val textSize by settings.textSize.state.collectAsStateWithLifecycle()
+    val lock by settings.lock.state.collectAsStateWithLifecycle()
+    val lockAfter by settings.lockAfter.state.collectAsStateWithLifecycle()
+    val hideInRecents by settings.hideInRecents.state.collectAsStateWithLifecycle()
     val state by notes.state.collectAsStateWithLifecycle()
     var root by remember { mutableStateOf(notes.rootPath) }
     var defaultFolder by remember { mutableStateOf(notes.defaultFolder) }
@@ -100,7 +117,55 @@ fun SettingsScreen(notes: Notes, onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("Notes layout", style = MaterialTheme.typography.titleMedium)
-                    LayoutToggle(layout, notes::setLayout)
+                    ChoiceToggle(
+                        listOf(NoteLayout.LIST to "List", NoteLayout.CARDS to "Cards"), layout, { settings.layout.value = it },
+                        icons = listOf(Icons.Outlined.ViewAgenda, Icons.Outlined.GridView),
+                    )
+                    Text("Theme", style = MaterialTheme.typography.titleMedium)
+                    ChoiceToggle(ThemeMode.entries.map { it to it.label }, theme, { settings.theme.value = it })
+                    Text("Text size in notes", style = MaterialTheme.typography.titleMedium)
+                    ChoiceToggle(TextSize.entries.map { it to it.label }, textSize, { settings.textSize.value = it })
+                }
+            }
+            item { GroupLabel("Privacy") }
+            item {
+                SegmentedListItem(
+                    onClick = { settings.hideInRecents.value = !hideInRecents },
+                    shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
+                    colors = colors,
+                    leadingContent = { Icon(Icons.Outlined.VisibilityOff, contentDescription = null) },
+                    supportingContent = { Text("Blank preview in recent apps; screenshots are blocked too") },
+                    trailingContent = { Switch(checked = hideInRecents, onCheckedChange = null) },
+                    modifier = Modifier.padding(bottom = ListItemDefaults.SegmentedGap),
+                ) { Text("Hide in Recents") }
+            }
+            item {
+                SegmentedListItem(
+                    onClick = {
+                        if (lock) {
+                            settings.lock.value = false
+                        } else if (canLock(context)) {
+                            settings.lock.value = true
+                        } else {
+                            Toast.makeText(context, "Set up a screen lock in Android settings first.", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
+                    colors = colors,
+                    leadingContent = { Icon(Icons.Outlined.Fingerprint, contentDescription = null) },
+                    supportingContent = { Text("Fingerprint or screen lock to open Kartka") },
+                    trailingContent = { Switch(checked = lock, onCheckedChange = null) },
+                ) { Text("Lock Kartka") }
+            }
+            if (lock) {
+                item {
+                    Column(
+                        Modifier.padding(top = 12.dp).fillMaxWidth().background(colors.containerColor, MaterialTheme.shapes.large).padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text("Lock again after leaving for", style = MaterialTheme.typography.titleMedium)
+                        ChoiceToggle(LockAfter.entries.map { it to it.label }, lockAfter, { settings.lockAfter.value = it })
+                    }
                 }
             }
             item { GroupLabel("Storage") }
@@ -141,26 +206,28 @@ fun SettingsScreen(notes: Notes, onBack: () -> Unit) {
     }
 }
 
-/** List or Cards, as a connected button group: the selected option fills and the shapes morph on press. */
+/** One choice out of a few, as a connected button group: the selected option fills and the shapes morph on press. */
 @Composable
-private fun LayoutToggle(selected: NoteLayout, onSelect: (NoteLayout) -> Unit) {
-    val options = listOf(
-        Triple(NoteLayout.LIST, "List", Icons.Outlined.ViewAgenda),
-        Triple(NoteLayout.CARDS, "Cards", Icons.Outlined.GridView),
-    )
+private fun <T> ChoiceToggle(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit, icons: List<ImageVector>? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-        options.forEachIndexed { i, (value, label, icon) ->
+        options.forEachIndexed { i, (value, label) ->
             ToggleButton(
                 checked = selected == value,
                 onCheckedChange = { onSelect(value) },
-                shapes = if (i == 0) ButtonGroupDefaults.connectedLeadingButtonShapes() else ButtonGroupDefaults.connectedTrailingButtonShapes(),
+                shapes = when (i) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
                 // The default unselected color matches the panel behind it; one step stronger keeps the button visible.
                 colors = ToggleButtonDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
                 modifier = Modifier.weight(1f),
             ) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(ToggleButtonDefaults.IconSize))
-                Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
-                Text(label)
+                icons?.get(i)?.let {
+                    Icon(it, contentDescription = null, modifier = Modifier.size(ToggleButtonDefaults.IconSize))
+                    Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
+                }
+                Text(label, maxLines = 1)
             }
         }
     }

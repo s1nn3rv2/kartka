@@ -1,5 +1,8 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
@@ -120,6 +123,7 @@ fun NoteScreen(
     // Opened notes arrive already read and parsed, so the first frame shows the content (no blank flash).
     val prepared = remember(path) { app.notes.takePrepared(path) }
     val session = remember(path) { NoteSession(app.notes, path, app.scope, prepared?.loaded) }
+    val textScale = app.settings.textSize.state.collectAsStateWithLifecycle().value.scale
     val scope = rememberCoroutineScope()
     LaunchedEffect(session) { if (prepared == null) session.load() }
     // Leaving the note (back, predictive back, process going away) saves whatever is pending.
@@ -386,6 +390,7 @@ fun NoteScreen(
                             scroll.importantForAccessibility =
                                 if (editing) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                             editor?.setColors(colors)
+                            editor?.scale = textScale
                         },
                         // The scroll view can draw past its box (into the navigation bar area), where the View layer
                         // doesn't cover it; clip it so the hidden editor never shows through.
@@ -395,30 +400,33 @@ fun NoteScreen(
                 val b = blocks
                 val f = folded
                 if (!editing && b != null && f != null) {
-                    MarkdownView(
-                        blocks = b,
-                        folded = f,
-                        onToggleFold = { i -> folded = if (i in f) f - i else f + i },
-                        onLink = { span ->
-                            when (span.style) {
-                                InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)
-                                InlineStyle.TAG -> onOpenTag(span.url.orEmpty())
-                                InlineStyle.FOOTNOTE -> b.indexOfFirst { it is MdFootnote && it.label == span.url }.takeIf { it >= 0 }?.let { reveal(b, it) }
-                                else -> Unit
-                            }
-                        },
-                        imageFile = { url -> app.notes.imageFile(session.path, url) },
-                        onToggleTask = { task ->
-                            text?.let { t ->
-                                if (task.offset in t.indices) {
-                                    session.replace(t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x"))
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * textScale)) {
+                        MarkdownView(
+                            blocks = b,
+                            folded = f,
+                            onToggleFold = { i -> folded = if (i in f) f - i else f + i },
+                            onLink = { span ->
+                                when (span.style) {
+                                    InlineStyle.WIKILINK -> onOpenWikiLink(span.url.orEmpty(), session.path)
+                                    InlineStyle.TAG -> onOpenTag(span.url.orEmpty())
+                                    InlineStyle.FOOTNOTE -> b.indexOfFirst { it is MdFootnote && it.label == span.url }.takeIf { it >= 0 }?.let { reveal(b, it) }
+                                    else -> Unit
                                 }
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-                        contentPadding = PaddingValues(bottom = 24.dp),
-                        state = listState,
-                    )
+                            },
+                            imageFile = { url -> app.notes.imageFile(session.path, url) },
+                            onToggleTask = { task ->
+                                text?.let { t ->
+                                    if (task.offset in t.indices) {
+                                        session.replace(t.replaceRange(task.offset, task.offset + 1, if (task.checked) " " else "x"))
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                            contentPadding = PaddingValues(bottom = 24.dp),
+                            state = listState,
+                        )
+                    }
                 }
                 val e = editor
                 if (editing && e != null) {

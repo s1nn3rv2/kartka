@@ -5,6 +5,8 @@
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    <!-- Fingerprint or screen lock to open the app (Settings > Lock Kartka). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
         android:name=".KartkaApp"

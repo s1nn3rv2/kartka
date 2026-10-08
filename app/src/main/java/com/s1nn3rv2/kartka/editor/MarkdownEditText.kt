@@ -42,6 +42,15 @@ class MarkdownEditText(context: Context, colors: EditorColors) : EditText(contex
     private var appliedLength = 0
     private var parseJob: Job? = null
 
+    /** Text size multiplier from Settings. */
+    var scale = 1f
+        set(value) {
+            if (field == value) return
+            field = value
+            textSize = 16f * value
+            style.baseTextSize = 16f * style.density * value
+        }
+
     /** Called after every user edit. */
     var onEdited: (() -> Unit)? = null
 

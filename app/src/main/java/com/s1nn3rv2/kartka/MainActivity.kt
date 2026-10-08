@@ -1,5 +1,12 @@
 package com.s1nn3rv2.kartka
 
+import com.s1nn3rv2.kartka.ui.LockScreen
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.activity.SystemBarStyle
+import android.view.WindowManager
 import android.graphics.drawable.ColorDrawable
 import android.content.Intent
 import android.os.Bundle
@@ -100,17 +107,45 @@ class MainActivity : ComponentActivity() {
         // Only a fresh start carries a new request; after recreation or reopening from Recents it was already handled.
         val fromRecents = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
         if (savedInstanceState == null && !fromRecents) accept(intent)
-        enableEdgeToEdge()
         val app = application as KartkaApp
         setContent {
-            KartkaTheme {
+            val theme by app.settings.theme.state.collectAsStateWithLifecycle()
+            val dark = when (theme) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            // Status and navigation bar icons follow the app's theme, which may differ from the system's.
+            LaunchedEffect(dark) {
+                val bars = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(bars, bars)
+            }
+            val hideInRecents by app.settings.hideInRecents.state.collectAsStateWithLifecycle()
+            LaunchedEffect(hideInRecents) {
+                // A secure window is blank in Recents (also its live preview) and in screenshots.
+                if (hideInRecents) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            KartkaTheme(darkTheme = dark) {
                 // The window shows through during transitions and at startup; match it to the theme instead of
                 // the platform's plain light or dark background.
                 val background = MaterialTheme.colorScheme.background.toArgb()
                 SideEffect { window.setBackgroundDrawable(ColorDrawable(background)) }
-                App(app, pendingIntent)
+                val locked by app.lock.locked.collectAsStateWithLifecycle()
+                Box(if (locked) Modifier.clearAndSetSemantics {} else Modifier) { App(app, pendingIntent) }
+                if (locked) LockScreen(onUnlock = { app.lock.locked.value = false })
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        (application as KartkaApp).lock.onReturn()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) (application as KartkaApp).lock.onLeave()
     }
 }
 
@@ -188,11 +223,13 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
         )
     }
 
+    val layout by app.settings.layout.state.collectAsStateWithLifecycle()
     SlideStack(stack) { route ->
         when (route) {
             Route.Home -> {
                 HomeScreen(
                     notes = notes,
+                    layout = layout,
                     folder = null,
                     onOpenNote = { openNote(it) },
                     onOpenFolder = { stack.push(Route.Folder(it)) },
@@ -207,6 +244,7 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
             is Route.Folder -> {
                 HomeScreen(
                     notes = notes,
+                    layout = layout,
                     folder = route.path,
                     onOpenNote = { openNote(it) },
                     onOpenFolder = { stack.push(Route.Folder(it)) },
@@ -218,7 +256,7 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
                     snackbar = snackbar,
                 )
             }
-            Route.Settings -> SettingsScreen(notes, onBack = { back() })
+            Route.Settings -> SettingsScreen(notes, app.settings, onBack = { back() })
             is Route.Tag -> TagScreen(notes, route.name, onOpenNote = { openNote(it) }, onBack = { back() })
             Route.Trash -> HiddenNotesScreen(notes, trash = true, onOpenNote = { openNote(it) }, onBack = { back() }, snackbar = snackbar)
             Route.Scratch -> HiddenNotesScreen(notes, trash = false, onOpenNote = { openNote(it) }, onBack = { back() }, snackbar = snackbar)

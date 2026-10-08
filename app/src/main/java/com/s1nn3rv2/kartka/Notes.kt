@@ -32,8 +32,6 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-enum class NoteLayout { LIST, CARDS }
-
 data class NotesState(
     val loaded: Boolean = false,
     /** Newest first. */
@@ -69,17 +67,6 @@ class Notes(context: Context) {
             _state.value = NotesState()
             scope.launch { refresh() }
         }
-
-    private val _layout = MutableStateFlow(
-        runCatching { NoteLayout.valueOf(prefs.getString("layout", null) ?: "") }.getOrDefault(NoteLayout.LIST)
-    )
-    /** How note lists are shown: rows or a grid of cards. */
-    val layout: StateFlow<NoteLayout> = _layout.asStateFlow()
-
-    fun setLayout(value: NoteLayout) {
-        prefs.edit().putString("layout", value.name).apply()
-        _layout.value = value
-    }
 
     /** Where notes created from home and quick capture go ("" = the notes folder itself). */
     var defaultFolder: String
