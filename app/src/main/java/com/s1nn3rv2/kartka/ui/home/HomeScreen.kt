@@ -1,5 +1,22 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.Surface
+import androidx.compose.material3.WideNavigationRailItem
+import androidx.compose.material3.WideNavigationRailDefaults
+import kotlin.coroutines.cancellation.CancellationException
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
@@ -83,7 +100,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExpandedFullScreenContainedSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -95,9 +111,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
@@ -109,7 +122,6 @@ import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.material3.rememberContainedSearchBarState
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -167,19 +179,15 @@ fun HomeScreen(
 ) {
     val state by notes.state.collectAsStateWithLifecycle()
     if (folder == null) {
-        val scope = rememberCoroutineScope()
-        val drawer = rememberDrawerState(DrawerValue.Closed)
-        BackHandler(drawer.isOpen) { scope.launch { drawer.close() } }
-        ModalNavigationDrawer(
-            drawerState = drawer,
-            drawerContent = {
-                val tree = remember(state.folders, state.notes) { folderTree(state.folders, state.notes) }
-                // The sidebar stays open: the next screen slides in over it, and back returns to it still open
-                // (its state is saved while another screen is on top).
-                FolderDrawer(tree, onOpenFolder = onOpenFolder, onOpenSettings = onOpenSettings, onOpenHidden = onOpenHidden)
-            },
-        ) {
-            Home(notes, state, layout, sort, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch, snackbar)
+        // The sidebar stays open: the next screen slides in over it, and back returns to it still open
+        // (this state is saved while another screen is on top).
+        var sidebar by rememberSaveable { mutableStateOf(false) }
+        Box {
+            Home(notes, state, layout, sort, onOpenNote, onMenu = { sidebar = true }, { onNewNote(notes.defaultFolder) }, onNewScratch, snackbar)
+            val tree = remember(state.folders, state.notes) { folderTree(state.folders, state.notes) }
+            Sidebar(sidebar, onClose = { sidebar = false }) {
+                FolderRail(tree, onOpenFolder = onOpenFolder, onOpenSettings = onOpenSettings, onOpenHidden = onOpenHidden)
+            }
         }
     } else {
         Folder(notes, state, layout, sort, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {}, snackbar)
@@ -359,16 +367,6 @@ internal fun GroupLabel(text: String) {
         style = MaterialTheme.typography.titleSmallEmphasized,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
-    )
-}
-
-@Composable
-private fun Empty(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(16.dp),
     )
 }
 
@@ -726,9 +724,46 @@ private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onN
     }
 }
 
-/** The sidebar: every folder, nested by indentation, with how many notes sit directly in it. */
+/**
+ * A sidebar panel in the style of Material 3 Expressive's expanded navigation rail, over a scrim. It slides in from
+ * the start edge, follows the predictive back gesture, and closes on a tap outside. Built in the screen itself (the
+ * stock modal rail is a separate window, which would stay on top of the next screen).
+ */
 @Composable
-private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpenSettings: () -> Unit, onOpenHidden: (trash: Boolean) -> Unit) {
+private fun Sidebar(open: Boolean, onClose: () -> Unit, content: @Composable () -> Unit) {
+    val shown = remember { Animatable(if (open) 1f else 0f) } // 1 = fully open
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    LaunchedEffect(open) { shown.animateTo(if (open) 1f else 0f, spatial) }
+    PredictiveBackHandler(enabled = open) { events ->
+        try {
+            events.collect { shown.snapTo(1f - it.progress * 0.4f) }
+            onClose()
+        } catch (e: CancellationException) {
+            shown.animateTo(1f, spatial)
+            throw e
+        }
+    }
+    if (shown.value == 0f && !open) return
+    val colors = WideNavigationRailDefaults.colors()
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier.fillMaxSize().graphicsLayer { alpha = shown.value.coerceIn(0f, 1f) }.background(colors.modalScrimColor)
+                .pointerInput(Unit) { detectTapGestures { onClose() } },
+        )
+        Surface(
+            shape = WideNavigationRailDefaults.modalExpandedShape,
+            color = colors.modalContainerColor,
+            contentColor = colors.modalContentColor,
+            modifier = Modifier.fillMaxHeight().fillMaxWidth(0.82f).widthIn(max = 360.dp)
+                .graphicsLayer { translationX = -(1f - shown.value) * size.width },
+        ) { content() }
+    }
+}
+
+/** The sidebar content: every folder, nested by indentation, with how many notes sit directly in it. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun FolderRail(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpenSettings: () -> Unit, onOpenHidden: (trash: Boolean) -> Unit) {
     val rows = remember(tree) {
         buildList {
             fun add(node: FolderNode, depth: Int) {
@@ -738,46 +773,40 @@ private fun FolderDrawer(tree: FolderNode, onOpenFolder: (String) -> Unit, onOpe
             tree.children.forEach { add(it, 0) }
         }
     }
-    ModalDrawerSheet {
+    @Composable
+    fun Item(label: String, icon: ImageVector, count: Int = 0, depth: Int = 0, onClick: () -> Unit) {
+        WideNavigationRailItem(
+            selected = false,
+            onClick = onClick,
+            icon = { Icon(icon, contentDescription = null) },
+            label = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (count > 0) {
+                        Text("  $count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            railExpanded = true,
+            modifier = Modifier.padding(start = 16.dp * depth, end = 12.dp),
+        )
+    }
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
         Text(
             LocalAppName.current,
             style = MaterialTheme.typography.titleLargeEmphasized,
             modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 16.dp),
         )
         LazyColumn(Modifier.weight(1f)) {
-            if (rows.isEmpty()) item { Empty("No folders yet.") }
-            itemsIndexed(rows, key = { _, r -> r.first.path }) { _, (node, depth) ->
-                NavigationDrawerItem(
-                    label = { Text(node.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    icon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                    badge = { if (node.notes > 0) Text("${node.notes}") },
-                    selected = false,
-                    onClick = { onOpenFolder(node.path) },
-                    modifier = Modifier.padding(start = 12.dp + 16.dp * depth, end = 12.dp),
-                )
+            if (rows.isEmpty()) item { EmptyState(Icons.Outlined.Folder, "No folders yet.", MaterialShapes.Clover4Leaf) }
+            items(rows, key = { it.first.path }) { (node, depth) ->
+                Item(node.name, Icons.Outlined.Folder, node.notes, depth) { onOpenFolder(node.path) }
             }
         }
         HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
-        NavigationDrawerItem(
-            label = { Text("Scratch") },
-            icon = { Icon(Icons.Outlined.Bolt, contentDescription = null) },
-            selected = false,
-            onClick = { onOpenHidden(false) },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("Trash") },
-            icon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
-            selected = false,
-            onClick = { onOpenHidden(true) },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("Settings") },
-            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-            selected = false,
-            onClick = onOpenSettings,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-        )
+        Item("Scratch", Icons.Outlined.Bolt) { onOpenHidden(false) }
+        Item("Trash", Icons.Outlined.Delete) { onOpenHidden(true) }
+        Item("Settings", Icons.Outlined.Settings) { onOpenSettings() }
+        Spacer(Modifier.height(12.dp))
     }
 }
