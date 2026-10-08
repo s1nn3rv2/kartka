@@ -129,21 +129,9 @@ fun HomeScreen(
             drawerState = drawer,
             drawerContent = {
                 val tree = remember(state.folders, state.notes) { folderTree(state.folders, state.notes) }
-                FolderDrawer(
-                    tree,
-                    onOpenFolder = { path ->
-                        scope.launch { drawer.close() }
-                        onOpenFolder(path)
-                    },
-                    onOpenSettings = {
-                        scope.launch { drawer.close() }
-                        onOpenSettings()
-                    },
-                    onOpenHidden = { trash ->
-                        scope.launch { drawer.close() }
-                        onOpenHidden(trash)
-                    },
-                )
+                // The sidebar stays open: the next screen slides in over it, and back returns to it still open
+                // (its state is saved while another screen is on top).
+                FolderDrawer(tree, onOpenFolder = onOpenFolder, onOpenSettings = onOpenSettings, onOpenHidden = onOpenHidden)
             },
         ) {
             Home(notes, state, layout, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch, snackbar)
