@@ -19,10 +19,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing key from environment variables (GitHub Actions secrets, see .github/workflows/build.yml).
+    // Without them, release builds fall back to this computer's debug key, like before.
+    val releaseKeystore = System.getenv("KARTKA_KEYSTORE")?.let(::file)?.takeIf { it.exists() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("KARTKA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KARTKA_KEY_ALIAS")
+                keyPassword = System.getenv("KARTKA_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // ponytail: sideloaded personal app, signed with the local debug key; add a real key if it is ever published.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             optimization {
                 enable = true
             }
