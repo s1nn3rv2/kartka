@@ -1,5 +1,17 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.MutableState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.combinedClickable
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -169,12 +181,14 @@ private fun Home(
         )
     }
     val list = rememberLazyStaggeredGridState()
+    val selection = rememberSelection(notes, state, snackbar)
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         // Both in Scaffold slots, so a snackbar lifts the FAB menu above itself instead of covering it.
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
+        floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
         topBar = {
+            if (selection.active) return@Scaffold SelectionBar(selection) { state.notes.map { it.path } }
             AppBarWithSearch(
                 state = search,
                 inputField = inputField,
@@ -201,7 +215,7 @@ private fun Home(
                 val groups = remember(state.notes) { state.notes.groupBy { age(it.modified) }.toSortedMap() }
                 NoteGrid(layout, list, padding) {
                     if (state.notes.isEmpty()) fullLine("empty") { Empty("No notes yet. Tap + to write one.") }
-                    for ((age, items) in groups) noteGroup(age.label, items, layout, notes, state.indexVersion, showFolder = true, onOpenNote)
+                    for ((age, items) in groups) noteGroup(age.label, items, layout, notes, state.indexVersion, showFolder = true, selection, onOpenNote)
                 }
             }
         }
@@ -228,11 +242,13 @@ private fun Folder(
         state.folders.filter { it.isNotEmpty() && it.substringBeforeLast('/', "") == folder }.sortedBy { it.lowercase() }
     }
     val list = rememberLazyStaggeredGridState()
+    val selection = rememberSelection(notes, state, snackbar)
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbar) },
-        floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
+        floatingActionButton = { if (!selection.active) NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
         topBar = {
+            if (selection.active) return@Scaffold SelectionBar(selection) { here.map { it.path } }
             LargeFlexibleTopAppBar(
                 title = { Text(folder.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 subtitle = { Text(if (here.size == 1) "1 note" else "${here.size} notes") },
@@ -260,7 +276,7 @@ private fun Folder(
                     }
                 }
                 if (here.isEmpty() && subfolders.isEmpty()) fullLine("empty") { Empty("Nothing here yet. Tap + to write a note in this folder.") }
-                if (here.isNotEmpty()) noteGroup("Notes", here, layout, notes, state.indexVersion, showFolder = false, onOpenNote)
+                if (here.isNotEmpty()) noteGroup("Notes", here, layout, notes, state.indexVersion, showFolder = false, selection, onOpenNote)
             }
         }
     }
@@ -326,28 +342,120 @@ private fun LazyStaggeredGridScope.noteGroup(
     notes: Notes,
     indexVersion: Int,
     showFolder: Boolean,
+    selection: Selection,
     onOpenNote: (String) -> Unit,
 ) {
     fullLine("label:$label") { GroupLabel(label) }
     itemsIndexed(items, key = { _, m -> m.path }, contentType = { _, _ -> "note" }) { i, meta ->
+        // Holding a note starts selecting; while selecting, a tap adds or removes a note instead of opening it.
+        val onClick = { if (selection.active) selection.toggle(meta.path) else onOpenNote(meta.path) }
+        val onLongClick = { selection.toggle(meta.path) }
+        val selected = if (selection.active) meta.path in selection.paths else null
         if (layout == NoteLayout.CARDS) {
-            NoteCard(meta, notes, indexVersion, showFolder, onOpenNote)
+            NoteCard(meta, notes, indexVersion, showFolder, selected, onClick, onLongClick)
         } else {
-            NoteRow(meta, i, items.size, notes, indexVersion, showFolder, onOpenNote)
+            NoteRow(meta, i, items.size, notes, indexVersion, showFolder, selected, onClick, onLongClick)
         }
     }
 }
 
+/** Notes picked by holding them, for deleting several at once. */
+@Stable
+private class Selection(private val state: MutableState<Set<String>>) {
+    val paths get() = state.value
+    val active get() = paths.isNotEmpty()
+    var delete: () -> Unit = {}
+    fun toggle(path: String) {
+        state.value = if (path in paths) paths - path else paths + path
+    }
+    fun set(paths: Set<String>) {
+        state.value = paths
+    }
+}
+
+/** Selection for one list; back clears it, and notes that disappear (deleted, moved) drop out of it. */
 @Composable
-private fun NoteCard(meta: NoteMeta, notes: Notes, indexVersion: Int, showFolder: Boolean, onOpenNote: (String) -> Unit) {
+private fun rememberSelection(notes: Notes, state: NotesState, snackbar: SnackbarHostState): Selection {
+    val scope = rememberCoroutineScope()
+    val selection = remember { Selection(mutableStateOf(emptySet())) }
+    LaunchedEffect(state.notes) {
+        val existing = state.notes.mapTo(HashSet()) { it.path }
+        if (selection.paths.any { it !in existing }) selection.set(selection.paths.filterTo(HashSet()) { it in existing })
+    }
+    BackHandler(selection.active) { selection.set(emptySet()) }
+    selection.delete = {
+        val paths = selection.paths.toList()
+        selection.set(emptySet())
+        scope.launch {
+            val moved = notes.trash(paths)
+            val message = if (moved.size == 1) "Moved 1 note to trash" else "Moved ${moved.size} notes to trash"
+            val result = snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long)
+            if (result == SnackbarResult.ActionPerformed) moved.forEach { notes.restore(it) }
+        }
+    }
+    return selection
+}
+
+/** Replaces the top bar while selecting: how many, select all, and move to trash. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionBar(selection: Selection, all: () -> List<String>) {
+    TopAppBar(
+        title = { Text("${selection.paths.size} selected") },
+        navigationIcon = {
+            IconButton(onClick = { selection.set(emptySet()) }, shapes = IconButtonDefaults.shapes()) {
+                Icon(Icons.Filled.Close, contentDescription = "Stop selecting")
+            }
+        },
+        actions = {
+            IconButton(onClick = { selection.set(all().toSet()) }, shapes = IconButtonDefaults.shapes()) {
+                Icon(Icons.Filled.SelectAll, contentDescription = "Select all")
+            }
+            IconButton(onClick = selection.delete, shapes = IconButtonDefaults.shapes()) {
+                Icon(Icons.Outlined.Delete, contentDescription = "Move to trash")
+            }
+        },
+    )
+}
+
+/** In selection mode, a filled check for selected notes and an empty circle for the rest. */
+@Composable
+private fun SelectionMark(selected: Boolean) {
+    Icon(
+        if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+        contentDescription = if (selected) "Selected" else "Not selected",
+        tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun NoteCard(
+    meta: NoteMeta,
+    notes: Notes,
+    indexVersion: Int,
+    showFolder: Boolean,
+    selected: Boolean?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it, max = 280) }.orEmpty() }
     val colors = MaterialTheme.colorScheme
+    val shape = MaterialTheme.shapes.large
+    val haptics = LocalHapticFeedback.current
     Card(
-        onClick = { onOpenNote(meta.path) },
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = if (selected == true) colors.secondaryContainer else colors.surfaceContainer),
+        modifier = Modifier.clip(shape).combinedClickable(
+            onClick = onClick,
+            onLongClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onLongClick()
+            },
+            onLongClickLabel = "Select",
+        ),
     ) {
         Column(Modifier.padding(16.dp)) {
+            if (selected != null) Box(Modifier.padding(bottom = 8.dp)) { SelectionMark(selected) }
             if (showFolder && meta.folder.isNotEmpty()) {
                 Text(meta.folder, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -375,13 +483,19 @@ private fun NoteRow(
     notes: Notes,
     indexVersion: Int,
     showFolder: Boolean,
-    onOpenNote: (String) -> Unit,
+    selected: Boolean?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     val snippet = remember(meta, indexVersion) { notes.indexed(meta.path)?.text?.let { preview(it) }.orEmpty() }
+    val colors = MaterialTheme.colorScheme
     SegmentedListItem(
-        onClick = { onOpenNote(meta.path) },
+        onClick = onClick,
+        onLongClick = onLongClick,
+        onLongClickLabel = "Select",
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
-        colors = ListItemDefaults.segmentedColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = ListItemDefaults.segmentedColors(containerColor = if (selected == true) colors.secondaryContainer else colors.surfaceContainer),
+        leadingContent = selected?.let { { SelectionMark(it) } },
         overlineContent = if (showFolder && meta.folder.isNotEmpty()) ({ Text(meta.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) }) else null,
         supportingContent = if (snippet.isNotEmpty()) ({ Text(snippet, maxLines = 2, overflow = TextOverflow.Ellipsis) }) else null,
         trailingContent = { Text(relativeTime(meta.modified), style = MaterialTheme.typography.labelMedium) },

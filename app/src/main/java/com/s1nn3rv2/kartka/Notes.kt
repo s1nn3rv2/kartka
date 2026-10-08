@@ -158,6 +158,10 @@ class Notes(context: Context) {
     /** Moves a trashed note back to where it was; returns its path. */
     suspend fun restore(trashPath: String): String? = io { it.restore(trashPath) }
 
+    /** Moves several notes to the trash; returns where they went (for undo). Notes that fail are skipped. */
+    suspend fun trash(paths: List<String>): List<String> =
+        io { repo -> paths.mapNotNull { runCatching { repo.trash(it) }.getOrNull() } }.orEmpty()
+
     /** Deletes a file for good (trash and scratch only). */
     suspend fun deleteForever(path: String) = io { it.delete(path) }
 
