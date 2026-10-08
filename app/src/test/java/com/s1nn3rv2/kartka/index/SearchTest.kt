@@ -1,0 +1,43 @@
+package com.s1nn3rv2.kartka.index
+
+import com.s1nn3rv2.kartka.storage.NoteMeta
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class SearchTest {
+    private fun note(path: String, text: String, modified: Long = 0) = IndexedNote(NoteMeta(path, modified, text.length.toLong()), text)
+
+    private val notes = listOf(
+        note("- Składniki na ciasto (ok. 4 naleśniki).md", "mąka, mleko, jajka #przepis"),
+        note("Plan treningowy.md", "Przysiad z hantlem, wyciskanie #trening #zdrowie/silownia"),
+        note("React.md", "Components and hooks. A plan for learning."),
+    )
+
+    // Polish notes: searching without accents must still find them, and normalizing must not shift positions.
+    @Test fun accentInsensitive() {
+        assertEquals("- Składniki na ciasto (ok. 4 naleśniki)", search(notes, "skladniki nalesniki").single().meta.title)
+        assertEquals("zazolc gesla jazn", normalize("Zażółć gęślą jaźń"))
+        assertEquals("Zażółć gęślą jaźń".length, normalize("Zażółć gęślą jaźń").length)
+    }
+
+    @Test fun titleMatchesRankAboveContent() {
+        assertEquals(listOf("Plan treningowy", "React"), search(notes, "plan").map { it.meta.title })
+    }
+
+    @Test fun everyWordMustMatch() {
+        assertTrue(search(notes, "plan hantlem").single().meta.title == "Plan treningowy")
+        assertTrue(search(notes, "plan banana").isEmpty())
+    }
+
+    @Test fun tagFilterIncludesNestedTags() {
+        assertEquals(listOf("Plan treningowy"), search(notes, "tag:zdrowie").map { it.meta.title })
+        assertEquals(setOf("trening", "zdrowie/silownia"), tags("# Heading\n#trening and #zdrowie/silownia, not a#b or #123"))
+    }
+
+    @Test fun snippetHighlightsTheMatch() {
+        val r = search(notes, "hooks").single()
+        assertTrue(r.highlights.isNotEmpty())
+        assertEquals("hooks", r.snippet.substring(r.highlights[0]))
+    }
+}
