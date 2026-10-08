@@ -7,17 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -38,7 +31,7 @@ import com.s1nn3rv2.kartka.ui.onboarding.OnboardingScreen
 import com.s1nn3rv2.kartka.ui.theme.KartkaTheme
 import kotlinx.coroutines.launch
 
-/** Screens. The back stack is a plain list; Navigation 3 animates between entries, including predictive back. */
+/** Screens. The back stack is a plain list of these, animated by [SlideStack]. */
 sealed interface Route {
     data object Home : Route
     data object Settings : Route
@@ -47,6 +40,28 @@ sealed interface Route {
     data class Folder(val path: String) : Route
     /** [isNew]: just created, so it opens in Edit mode with the title field focused. */
     data class Note(val path: String, val isNew: Boolean = false) : Route
+
+    /** Plain strings, so the back stack can be saved across activity recreation. */
+    fun encode(): String = when (this) {
+        Home -> "home"
+        Settings -> "settings"
+        Trash -> "trash"
+        Scratch -> "scratch"
+        is Folder -> "folder:$path"
+        is Note -> "note:${if (isNew) 1 else 0}:$path"
+    }
+
+    companion object {
+        fun decode(s: String): Route = when {
+            s == "settings" -> Settings
+            s == "trash" -> Trash
+            s == "scratch" -> Scratch
+            s.startsWith("folder:") -> Folder(s.removePrefix("folder:"))
+            // A restored note is no longer "new": the title focus and edit start already happened.
+            s.startsWith("note:") -> Note(s.substringAfter(':').substringAfter(':'))
+            else -> Home
+        }
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -81,8 +96,7 @@ private fun App(app: KartkaApp) {
         notes.refreshSoon()
         onPauseOrDispose { }
     }
-    // ponytail: the back stack is not kept across process death; save it once deep links or restore matter.
-    val stack = rememberSlideStack<Route>(Route.Home)
+    val stack = rememberSlideStack<Route>(Route.Home, save = Route::encode, restore = Route::decode)
     val activity = LocalActivity.current
     // Back on the last screen leaves the app.
     val back = { if (!stack.pop()) activity?.finish() }
@@ -104,7 +118,6 @@ private fun App(app: KartkaApp) {
             if (result == SnackbarResult.ActionPerformed) notes.restore(trashPath)
         }
     }
-    Box(Modifier.fillMaxSize()) {
     SlideStack(stack) { route ->
         when (route) {
             Route.Home -> {
@@ -118,6 +131,7 @@ private fun App(app: KartkaApp) {
                     onOpenSettings = { stack.push(Route.Settings) },
                     onOpenHidden = { trash -> stack.push(if (trash) Route.Trash else Route.Scratch) },
                     onBack = null,
+                    snackbar = snackbar,
                 )
             }
             is Route.Folder -> {
@@ -131,16 +145,15 @@ private fun App(app: KartkaApp) {
                     onOpenSettings = { stack.push(Route.Settings) },
                     onOpenHidden = { trash -> stack.push(if (trash) Route.Trash else Route.Scratch) },
                     onBack = { back() },
+                    snackbar = snackbar,
                 )
             }
             Route.Settings -> SettingsScreen(notes, onBack = { back() })
-            Route.Trash -> HiddenNotesScreen(notes, trash = true, onOpenNote = { openNote(it) }, onBack = { back() })
-            Route.Scratch -> HiddenNotesScreen(notes, trash = false, onOpenNote = { openNote(it) }, onBack = { back() })
+            Route.Trash -> HiddenNotesScreen(notes, trash = true, onOpenNote = { openNote(it) }, onBack = { back() }, snackbar = snackbar)
+            Route.Scratch -> HiddenNotesScreen(notes, trash = false, onOpenNote = { openNote(it) }, onBack = { back() }, snackbar = snackbar)
             is Route.Note -> {
                 NoteScreen(app, route.path, route.isNew, onBack = { back() }, onTrashed = ::trashed)
             }
         }
-    }
-    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding())
     }
 }

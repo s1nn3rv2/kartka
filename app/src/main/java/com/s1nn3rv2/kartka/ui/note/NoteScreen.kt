@@ -126,7 +126,8 @@ fun NoteScreen(app: KartkaApp, path: String, isNew: Boolean, onBack: () -> Unit,
     var editor by remember(path) { mutableStateOf<MarkdownEditText?>(null) }
     var canUndo by remember(path) { mutableStateOf(false) }
     var canRedo by remember(path) { mutableStateOf(false) }
-    var prepareEditor by remember(path) { mutableStateOf(isNew) }
+    // Also right away when Edit mode was restored (activity recreated mid-edit), or the screen would be blank.
+    var prepareEditor by remember(path) { mutableStateOf(isNew || editing) }
     LaunchedEffect(blocks) {
         if (blocks == null) return@LaunchedEffect
         delay(700) // after the open transition, so the ~100 ms of layout can't stutter the slide

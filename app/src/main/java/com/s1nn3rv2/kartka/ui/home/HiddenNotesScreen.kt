@@ -23,6 +23,8 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -51,7 +53,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HiddenNotesScreen(notes: Notes, trash: Boolean, onOpenNote: (String) -> Unit, onBack: () -> Unit) {
+fun HiddenNotesScreen(notes: Notes, trash: Boolean, onOpenNote: (String) -> Unit, onBack: () -> Unit, snackbar: SnackbarHostState) {
     val scope = rememberCoroutineScope()
     val folder = if (trash) NotesRepository.TRASH else NotesRepository.SCRATCH
     // Reloads whenever the notes change (including our own restores and deletions).
@@ -62,6 +64,7 @@ fun HiddenNotesScreen(notes: Notes, trash: Boolean, onOpenNote: (String) -> Unit
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text(if (trash) "Trash" else "Scratch") },

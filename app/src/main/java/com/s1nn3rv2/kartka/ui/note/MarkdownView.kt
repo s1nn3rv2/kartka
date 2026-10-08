@@ -84,7 +84,7 @@ fun MarkdownView(
     val foldable = remember(blocks) { BooleanArray(blocks.size) { canFold(blocks, it) } }
     SelectionContainer(modifier) {
         LazyColumn(state = state, contentPadding = contentPadding) {
-            items(visible, key = { it }) { i ->
+            items(visible, key = { it }, contentType = { blocks[it]::class }) { i ->
                 Row(Modifier.padding(start = 4.dp + IndentStep * blocks[i].indent, end = 20.dp)) {
                     FoldArrow(foldable[i], i in folded, top(blocks[i])) { onToggleFold(i) }
                     Block(blocks[i], onToggleTask)

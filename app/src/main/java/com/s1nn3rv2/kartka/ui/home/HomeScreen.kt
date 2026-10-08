@@ -57,6 +57,8 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
@@ -115,6 +117,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenHidden: (trash: Boolean) -> Unit,
     onBack: (() -> Unit)?,
+    snackbar: SnackbarHostState,
 ) {
     val state by notes.state.collectAsStateWithLifecycle()
     val layout by notes.layout.collectAsStateWithLifecycle()
@@ -125,8 +128,9 @@ fun HomeScreen(
         ModalNavigationDrawer(
             drawerState = drawer,
             drawerContent = {
+                val tree = remember(state.folders, state.notes) { folderTree(state.folders, state.notes) }
                 FolderDrawer(
-                    folderTree(state.folders, state.notes),
+                    tree,
                     onOpenFolder = { path ->
                         scope.launch { drawer.close() }
                         onOpenFolder(path)
@@ -142,10 +146,10 @@ fun HomeScreen(
                 )
             },
         ) {
-            Home(notes, state, layout, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch)
+            Home(notes, state, layout, onOpenNote, onMenu = { scope.launch { drawer.open() } }, { onNewNote(notes.defaultFolder) }, onNewScratch, snackbar)
         }
     } else {
-        Folder(notes, state, layout, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {})
+        Folder(notes, state, layout, folder, onOpenNote, onOpenFolder, { onNewNote(folder) }, onNewScratch, onBack ?: {}, snackbar)
     }
 }
 
@@ -159,6 +163,7 @@ private fun Home(
     onMenu: () -> Unit,
     onNewNote: () -> Unit,
     onNewScratch: () -> Unit,
+    snackbar: SnackbarHostState,
 ) {
     val scope = rememberCoroutineScope()
     val query = rememberTextFieldState()
@@ -178,6 +183,9 @@ private fun Home(
     val list = rememberLazyStaggeredGridState()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        // Both in Scaffold slots, so a snackbar lifts the FAB menu above itself instead of covering it.
+        snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
         topBar = {
             AppBarWithSearch(
                 state = search,
@@ -208,7 +216,6 @@ private fun Home(
                     for ((age, items) in groups) noteGroup(age.label, items, layout, notes, state.indexVersion, showFolder = true, onOpenNote)
                 }
             }
-            NewNoteMenu(list, onNewNote, onNewScratch, Modifier.align(Alignment.BottomEnd).padding(padding))
         }
     }
 }
@@ -225,6 +232,7 @@ private fun Folder(
     onNewNote: () -> Unit,
     onNewScratch: () -> Unit,
     onBack: () -> Unit,
+    snackbar: SnackbarHostState,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val here = remember(state.notes, folder) { state.notes.filter { it.folder == folder } }
@@ -234,6 +242,8 @@ private fun Folder(
     val list = rememberLazyStaggeredGridState()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier) },
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text(folder.substringAfterLast('/'), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -251,7 +261,7 @@ private fun Folder(
             NoteGrid(layout, list, padding) {
                 if (subfolders.isNotEmpty()) {
                     fullLine("folders") { GroupLabel("Folders") }
-                    itemsIndexed(subfolders, key = { _, p -> "f:$p" }, span = { _, _ -> StaggeredGridItemSpan.FullLine }) { i, path ->
+                    itemsIndexed(subfolders, key = { _, p -> "f:$p" }, contentType = { _, _ -> "folder" }, span = { _, _ -> StaggeredGridItemSpan.FullLine }) { i, path ->
                         SegmentedListItem(
                             onClick = { onOpenFolder(path) },
                             shapes = ListItemDefaults.segmentedShapes(index = i, count = subfolders.size),
@@ -264,7 +274,6 @@ private fun Folder(
                 if (here.isEmpty() && subfolders.isEmpty()) fullLine("empty") { Empty("Nothing here yet. Tap + to write a note in this folder.") }
                 if (here.isNotEmpty()) noteGroup("Notes", here, layout, notes, state.indexVersion, showFolder = false, onOpenNote)
             }
-            NewNoteMenu(list, onNewNote, onNewScratch, Modifier.align(Alignment.BottomEnd).padding(padding))
         }
     }
 }
@@ -319,7 +328,7 @@ private fun NoteGrid(layout: NoteLayout, state: LazyStaggeredGridState, bars: Pa
 }
 
 private fun LazyStaggeredGridScope.fullLine(key: String, content: @Composable () -> Unit) =
-    item(key = key, span = StaggeredGridItemSpan.FullLine) { content() }
+    item(key = key, contentType = "label", span = StaggeredGridItemSpan.FullLine) { content() }
 
 /** A labelled group of notes: segmented rows (large corners only at the group's ends) or cards. */
 private fun LazyStaggeredGridScope.noteGroup(
@@ -332,7 +341,7 @@ private fun LazyStaggeredGridScope.noteGroup(
     onOpenNote: (String) -> Unit,
 ) {
     fullLine("label:$label") { GroupLabel(label) }
-    itemsIndexed(items, key = { _, m -> m.path }) { i, meta ->
+    itemsIndexed(items, key = { _, m -> m.path }, contentType = { _, _ -> "note" }) { i, meta ->
         if (layout == NoteLayout.CARDS) {
             NoteCard(meta, notes, indexVersion, showFolder, onOpenNote)
         } else {
@@ -438,7 +447,7 @@ private fun NewNoteMenu(list: LazyStaggeredGridState, onNewNote: () -> Unit, onN
     val visible by remember { derivedStateOf { !list.lastScrolledForward || !list.canScrollForward } }
     FloatingActionButtonMenu(
         expanded = open,
-        modifier = modifier.navigationBarsPadding(),
+        modifier = modifier,
         button = {
             ToggleFloatingActionButton(
                 checked = open,
