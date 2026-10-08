@@ -1,5 +1,9 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.coroutines.cancellation.CancellationException
+import androidx.compose.animation.core.Animatable
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
@@ -257,7 +261,19 @@ fun NoteScreen(
         commitTitle()
         editing = false
     }
-    BackHandler(editing) { finishEditing() }
+    // Back while editing returns to View mode; the toolbar follows the gesture down and springs back if cancelled.
+    val editBack = remember { Animatable(0f) }
+    val backSpring = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    PredictiveBackHandler(editing) { events ->
+        try {
+            events.collect { editBack.snapTo(it.progress) }
+            finishEditing()
+        } catch (e: CancellationException) {
+            editBack.animateTo(0f, backSpring)
+            throw e
+        }
+    }
+    LaunchedEffect(editing) { if (editing) editBack.snapTo(0f) }
     val leave = {
         if (editing) finishEditing()
         onBack()
@@ -502,7 +518,12 @@ fun NoteScreen(
                     exit = slideOutVertically(slide) { it } + fadeOut(),
                 ) {
                     if (e == null) return@AnimatedVisibility
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Column(
+                        Modifier.graphicsLayer {
+                            translationY = editBack.value * size.height * 0.6f
+                            alpha = 1f - 0.5f * editBack.value
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
                         linkQuery?.let { (start, typed) ->
                             LinkSuggestions(app.notes, typed, exclude = session.path) { title ->
                                 e.applyEdit { Edits.completeLink(it, start, title) }

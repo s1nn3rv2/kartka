@@ -1,5 +1,11 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -225,6 +231,11 @@ private fun Home(
     }
     val list = rememberLazyStaggeredGridState()
     val selection = rememberSelection(notes, state, snackbar)
+    // The bar turns gray by adding up scroll events; a list that moved without them (restored, jumped) would leave
+    // it gray at the top. At the very top, it's reset.
+    LaunchedEffect(list) {
+        snapshotFlow { list.canScrollBackward }.collect { if (!it) scrollBehavior.scrollState.contentOffset = 0f }
+    }
     // The status bar area takes the bar's color, so the bar reads as one solid piece when it slides back in
     // (otherwise the notes show through above it).
     val scrolled by remember { derivedStateOf { list.canScrollBackward } }
@@ -270,7 +281,7 @@ private fun Home(
                     val pins by notes.pins.collectAsStateWithLifecycle()
                     val groups = remember(state.notes, pins, sort) { groupNotes(state.notes, pins, sort, restLabel = null) }
                     // A pin added while at the top would appear above the first visible row; keep the top in view.
-                    LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
+                    KeepTopInView(list, pins)
                     NoteGrid(layout, list, padding) {
                         if (state.notes.isEmpty()) fullLine("empty") { EmptyState(Icons.Outlined.EditNote, "No notes yet. Tap + to write one.", MaterialShapes.Cookie9Sided) }
                         for ((label, items) in groups) noteGroup(label, items, layout, notes, state.indexVersion, showFolder = true, selection, pins, onOpenNote)
@@ -305,7 +316,7 @@ private fun Folder(
     val pins by notes.pins.collectAsStateWithLifecycle()
     val groups = remember(here, pins, sort) { groupNotes(here, pins, sort, restLabel = "Notes") }
     val list = rememberLazyStaggeredGridState()
-    LaunchedEffect(pins) { if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0) }
+    KeepTopInView(list, pins)
     val selection = rememberSelection(notes, state, snackbar)
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -422,13 +433,89 @@ private fun LazyStaggeredGridScope.noteGroup(
         val selected = if (selection.active) meta.path in selection.paths else null
         // Notes glide to their new place with the theme's springs when pinned, deleted, restored or re-sorted.
         Box(Modifier.animateItem()) {
-            if (layout == NoteLayout.CARDS) {
-                NoteCard(meta, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
-            } else {
-                NoteRow(meta, i, items.size, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
+            val shape = if (layout == NoteLayout.CARDS) MaterialTheme.shapes.large else ListItemDefaults.segmentedShapes(i, items.size).shape
+            SwipeActions(
+                pinned = meta.path in pins,
+                shape = shape,
+                enabled = !selection.active,
+                onPin = { notes.setPinned(listOf(meta.path), meta.path !in pins) },
+                onTrash = { selection.trash(listOf(meta.path)) },
+            ) {
+                if (layout == NoteLayout.CARDS) {
+                    NoteCard(meta, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
+                } else {
+                    NoteRow(meta, i, items.size, notes, indexVersion, showFolder, meta.path in pins, selected, onClick, onLongClick)
+                }
             }
         }
     }
+}
+
+/**
+ * Swipe a note to the right to pin or unpin it, to the left to move it to the trash. The colored action shows under
+ * the note as it moves, with a buzz when the swipe passes the point where it takes effect; the note springs back.
+ */
+@Composable
+private fun SwipeActions(
+    pinned: Boolean,
+    shape: Shape,
+    enabled: Boolean,
+    onPin: () -> Unit,
+    onTrash: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val state = rememberSwipeToDismissBoxState()
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    // Acts once per swipe, after the note has sprung back: acting right away would move a pinned note to another
+    // group while it still counts as swiped there, which would fire the action again.
+    LaunchedEffect(state.settledValue) {
+        val swiped = state.settledValue
+        if (swiped == SwipeToDismissBoxValue.Settled) return@LaunchedEffect
+        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+        scope.launch {
+            state.reset()
+            if (swiped == SwipeToDismissBoxValue.StartToEnd) onPin() else onTrash()
+        }
+    }
+    LaunchedEffect(state.targetValue) {
+        if (state.targetValue != SwipeToDismissBoxValue.Settled) haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+    }
+    SwipeToDismissBox(
+        state = state,
+        gesturesEnabled = enabled,
+        // The note slides within its own space, not over its neighbors.
+        modifier = Modifier.clip(shape),
+        backgroundContent = {
+            val direction = state.dismissDirection
+            if (direction == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
+            val colors = MaterialTheme.colorScheme
+            val toPin = direction == SwipeToDismissBoxValue.StartToEnd
+            val armed = state.targetValue != SwipeToDismissBoxValue.Settled
+            // The icon grows with a spring once the swipe will take effect.
+            val iconScale by animateFloatAsState(if (armed) 1.25f else 1f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "swipe icon")
+            Box(
+                Modifier.fillMaxSize().clip(shape).background(if (toPin) colors.primaryContainer else colors.errorContainer)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = if (toPin) Alignment.CenterStart else Alignment.CenterEnd,
+            ) {
+                Icon(
+                    when {
+                        !toPin -> Icons.Outlined.Delete
+                        pinned -> Icons.Outlined.PushPin
+                        else -> Icons.Filled.PushPin
+                    },
+                    contentDescription = when {
+                        !toPin -> "Move to trash"
+                        pinned -> "Unpin"
+                        else -> "Pin"
+                    },
+                    tint = if (toPin) colors.onPrimaryContainer else colors.onErrorContainer,
+                    modifier = Modifier.graphicsLayer { scaleX = iconScale; scaleY = iconScale },
+                )
+            }
+        },
+    ) { content() }
 }
 
 /** Notes picked by holding them, for deleting several at once. */
@@ -437,6 +524,12 @@ private class Selection(private val state: MutableState<Set<String>>) {
     val paths get() = state.value
     val active get() = paths.isNotEmpty()
     var delete: () -> Unit = {}
+
+    /** Moves notes to the trash with an Undo snackbar (selection's Delete, and swiping a note away). */
+    var trash: (List<String>) -> Unit = {}
+
+    /** How far a back gesture leaving selection mode has gone: 0 = not started, 1 = done. */
+    val backProgress = Animatable(0f)
     fun toggle(path: String) {
         state.value = if (path in paths) paths - path else paths + path
     }
@@ -454,10 +547,24 @@ private fun rememberSelection(notes: Notes, state: NotesState, snackbar: Snackba
         val existing = state.notes.mapTo(HashSet()) { it.path }
         if (selection.paths.any { it !in existing }) selection.set(selection.paths.filterTo(HashSet()) { it in existing })
     }
-    BackHandler(selection.active) { selection.set(emptySet()) }
+    // The selection bar follows the back gesture; letting go ends selecting, cancelling springs it back.
+    val spring = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    PredictiveBackHandler(selection.active) { events ->
+        try {
+            events.collect { selection.backProgress.snapTo(it.progress) }
+            selection.set(emptySet())
+            selection.backProgress.snapTo(0f)
+        } catch (e: CancellationException) {
+            selection.backProgress.animateTo(0f, spring)
+            throw e
+        }
+    }
     selection.delete = {
         val paths = selection.paths.toList()
         selection.set(emptySet())
+        selection.trash(paths)
+    }
+    selection.trash = { paths ->
         scope.launch {
             val moved = notes.trash(paths)
             val message = if (moved.size == 1) "Moved 1 note to trash" else "Moved ${moved.size} notes to trash"
@@ -483,6 +590,21 @@ private fun SelectionAware(selecting: Boolean, selectionBar: @Composable () -> U
     ) { if (it) selectionBar() else bar() }
 }
 
+/**
+ * When pins change while the list is at its top, scrolls to the very top so a newly pinned note (which appears
+ * above) is in view. Only on real changes: coming back to the screen restores the scroll position untouched.
+ */
+@Composable
+private fun KeepTopInView(list: LazyStaggeredGridState, pins: Set<String>) {
+    var seen by rememberSaveable { mutableStateOf(pins.sorted()) }
+    LaunchedEffect(pins) {
+        val now = pins.sorted()
+        if (now == seen) return@LaunchedEffect
+        seen = now
+        if (list.firstVisibleItemIndex <= 1) list.scrollToItem(0)
+    }
+}
+
 /** Replaces the top bar while selecting: how many, select all, and move to trash. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -490,7 +612,15 @@ private fun SelectionBar(selection: Selection, notes: Notes, all: () -> List<Str
     val pins by notes.pins.collectAsStateWithLifecycle()
     val allPinned = pins.containsAll(selection.paths)
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
     TopAppBar(
+        modifier = Modifier.graphicsLayer {
+            val p = selection.backProgress.value
+            scaleX = 1f - 0.08f * p
+            scaleY = 1f - 0.08f * p
+            alpha = 1f - 0.4f * p
+            translationY = -p * with(density) { 12.dp.toPx() }
+        },
         // While the bar animates away the selection is already empty; keep showing the last count.
         title = {
             var count by remember { mutableIntStateOf(selection.paths.size) }
