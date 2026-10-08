@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka
 
+import com.s1nn3rv2.kartka.ui.showUndo
 import androidx.compose.runtime.CompositionLocalProvider
 import com.s1nn3rv2.kartka.ui.LockScreen
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -17,9 +18,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -189,8 +188,7 @@ private fun App(app: KartkaApp, pendingIntent: MutableStateFlow<Intent?>) {
     fun trashed(trashPath: String) {
         back()
         scope.launch {
-            val result = snackbar.showSnackbar("Moved to trash", actionLabel = "Undo", duration = SnackbarDuration.Long)
-            if (result == SnackbarResult.ActionPerformed) notes.restore(trashPath)
+            if (snackbar.showUndo("Moved to trash")) notes.restore(trashPath)
         }
     }
     // Launcher shortcuts start a note right away; shared text asks where it should go.

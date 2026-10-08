@@ -1,5 +1,7 @@
 package com.s1nn3rv2.kartka.ui.home
 
+import com.s1nn3rv2.kartka.ui.AppSnackbarHost
+import com.s1nn3rv2.kartka.ui.showUndo
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Shape
@@ -58,8 +60,6 @@ import com.s1nn3rv2.kartka.index.groupNotes
 import com.s1nn3rv2.kartka.LocalAppName
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.MutableState
-import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.outlined.Circle
@@ -121,7 +121,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleFloatingActionButton
@@ -250,7 +249,7 @@ private fun Home(
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
             // Both in Scaffold slots, so a snackbar lifts the FAB menu above itself instead of covering it.
-            snackbarHost = { SnackbarHost(snackbar) },
+            snackbarHost = { AppSnackbarHost(snackbar) },
             floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier, hidden = selection.active) },
             topBar = {
                 SelectionAware(selection.active, { SelectionBar(selection, notes) { state.notes.map { it.path } } }) {
@@ -320,7 +319,7 @@ private fun Folder(
     val selection = rememberSelection(notes, state, snackbar)
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { AppSnackbarHost(snackbar) },
         floatingActionButton = { NewNoteMenu(list, onNewNote, onNewScratch, Modifier, hidden = selection.active) },
         topBar = {
             SelectionAware(selection.active, { SelectionBar(selection, notes) { here.map { it.path } } }) {
@@ -568,8 +567,7 @@ private fun rememberSelection(notes: Notes, state: NotesState, snackbar: Snackba
         scope.launch {
             val moved = notes.trash(paths)
             val message = if (moved.size == 1) "Moved 1 note to trash" else "Moved ${moved.size} notes to trash"
-            val result = snackbar.showSnackbar(message, actionLabel = "Undo", duration = SnackbarDuration.Long)
-            if (result == SnackbarResult.ActionPerformed) moved.forEach { notes.restore(it) }
+            if (snackbar.showUndo(message)) moved.forEach { notes.restore(it) }
         }
     }
     return selection
