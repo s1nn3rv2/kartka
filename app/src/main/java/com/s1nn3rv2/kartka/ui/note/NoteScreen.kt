@@ -1,5 +1,6 @@
 package com.s1nn3rv2.kartka.ui.note
 
+import androidx.compose.runtime.rememberUpdatedState
 import com.s1nn3rv2.kartka.storage.NotesRepository
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.heightIn
@@ -204,7 +205,26 @@ fun NoteScreen(
         foldKeys = keys
         app.notes.setFolds(session.path, keys)
     }
-    val listState = rememberLazyListState()
+    // A note opens where you left it: the block that was at the top last time (by its place among all blocks, so
+    // folding elsewhere doesn't shift it) and how far it was scrolled. Starts there on the first frame, no jump.
+    val start = remember(path) {
+        val b = blocks
+        val f = folded
+        val saved = app.notes.position(path)
+        if (b == null || f == null || saved == null) 0 to 0
+        else visibleBlocks(b, f).indexOfFirst { it >= saved.first }.let { if (it < 0) 0 to 0 else it to saved.second }
+    }
+    val listState = rememberLazyListState(start.first, start.second)
+    val latestBlocks by rememberUpdatedState(blocks)
+    val latestFolded by rememberUpdatedState(folded)
+    fun savePosition() {
+        val b = latestBlocks ?: return
+        val f = latestFolded ?: return
+        val block = visibleBlocks(b, f).getOrNull(listState.firstVisibleItemIndex) ?: return
+        app.notes.setPosition(session.path, block, listState.firstVisibleItemScrollOffset)
+    }
+    // Saved when leaving the note or the app (Android may end the app in the background).
+    LifecycleResumeEffect(session) { onPauseOrDispose { savePosition() } }
     var showOutline by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }

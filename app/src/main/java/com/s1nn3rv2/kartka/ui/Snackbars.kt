@@ -1,6 +1,11 @@
 package com.s1nn3rv2.kartka.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -15,13 +20,21 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun AppSnackbarHost(state: SnackbarHostState, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     SnackbarHost(state, modifier) { data ->
-        Snackbar(
-            data,
-            shape = MaterialTheme.shapes.large,
-            containerColor = colors.primaryContainer,
-            contentColor = colors.onPrimaryContainer,
-            actionColor = colors.onPrimaryContainer,
-        )
+        // Swipe it sideways to dismiss it early (the action, like Undo, isn't taken). Each snackbar gets its own
+        // swipe state, so the next one doesn't start out swiped away.
+        val swipe = key(data) { rememberSwipeToDismissBoxState() }
+        LaunchedEffect(swipe.settledValue) {
+            if (swipe.settledValue != SwipeToDismissBoxValue.Settled) data.dismiss()
+        }
+        SwipeToDismissBox(state = swipe, backgroundContent = {}) {
+            Snackbar(
+                data,
+                shape = MaterialTheme.shapes.large,
+                containerColor = colors.primaryContainer,
+                contentColor = colors.onPrimaryContainer,
+                actionColor = colors.onPrimaryContainer,
+            )
+        }
     }
 }
 

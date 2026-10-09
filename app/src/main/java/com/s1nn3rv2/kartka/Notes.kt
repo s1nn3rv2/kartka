@@ -221,7 +221,20 @@ class Notes(context: Context) {
         return p
     }
 
-    /** A note was renamed or moved: its pin and remembered folds follow it. */
+    // ponytail: one entry per note read past its top, never cleaned up; prune entries of missing notes if it grows.
+    private val positionPrefs = context.getSharedPreferences("positions", Context.MODE_PRIVATE)
+
+    /** Where reading stopped in a note: the block at the top of the screen and how far it was scrolled into. */
+    fun position(path: String): Pair<Int, Int>? =
+        positionPrefs.getString(path, null)?.split(':')?.mapNotNull(String::toIntOrNull)?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+
+    fun setPosition(path: String, block: Int, offset: Int) {
+        // The top is the default; no entry needed.
+        if (block == 0 && offset == 0) positionPrefs.edit().remove(path).apply()
+        else positionPrefs.edit().putString(path, "$block:$offset").apply()
+    }
+
+    /** A note was renamed or moved: its pin, remembered folds and reading position follow it. */
     fun pathChanged(old: String, new: String) {
         if (old == new) return
         moved[old] = new
@@ -233,6 +246,10 @@ class Notes(context: Context) {
         folds(old)?.let {
             setFolds(new, it)
             foldPrefs.edit().remove(old).apply()
+        }
+        position(old)?.let { (block, offset) ->
+            setPosition(new, block, offset)
+            positionPrefs.edit().remove(old).apply()
         }
     }
 
